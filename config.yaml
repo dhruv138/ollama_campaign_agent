@@ -1,0 +1,66 @@
+# config.yaml
+# Configuration for campaign_agent.py
+
+# REQUIRED:
+# Replace this with the full path to your Obsidian vault.
+# Example:
+# vault_path: "/Users/dhruv/Documents/Obsidian/Icemoor"
+vault_path: "/Users/dhruvmukul/Icemoor_Obsidian_Vault"
+
+# Ollama
+ollama_url: "http://localhost:11434"
+model: "qwen3:1.7b"
+temperature: 0.1
+ollama_timeout_seconds: 600
+
+# Ignore low-confidence entities produced by the model.
+minimum_entity_confidence: 0.60
+
+# Python fuzzy matching threshold for names/aliases.
+# 0.88 is intentionally conservative.
+fuzzy_match_threshold: 0.88
+
+# Number of existing entity names of each type that may be included in
+# the Ollama extraction prompt. Increase if your campaign grows beyond this.
+max_catalog_per_type: 500
+
+# Vault organization.
+# Change these if your actual folder names differ.
+type_folders:
+  campaign: "Campaign"
+  clues: "Clues_&_Mysteries"
+  faction: "Factions"
+  item: "Items"
+  lore: "Lore"
+  npc: "People"
+  location: "Places"
+  quest: "Quests"
+  session: "Sessions"
+
+# Existing template folder and filenames.
+template_folder: "_Templates"
+
+template_files:
+  npc: "NPC Template.md"
+  location: "Location Template.md"
+  faction: "Faction Template.md"
+  quest: "Quest Template.md"
+  item: "Item Template.md"
+  session: "Session Template.md"
+
+# If Ollama identifies an entity that does not already have a note,
+# create one using the corresponding template above.
+create_missing_notes: true
+
+# Add the processed note to `related:` on existing entity notes.
+# Example: processing Session 38 can add [[Session 38]] to an NPC's related list.
+update_reverse_links: true
+
+# Existing files are copied here before the script modifies them.
+backup_folder: "_backups"
+
+# These folders are not included when building the vault entity index.
+exclude_folders:
+  - ".obsidian"
+  - "_backups"
+  - "_Templates"

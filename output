@@ -1,0 +1,117 @@
+Calling Ollama model: qwen3:1.7b
+Running focused extraction passes:
+  → Entities
+  → Quests and Objectives
+  → Clues and Mysteries
+  → Lore and World Knowledge
+
+========================================================================
+CAMPAIGN AGENT V4.3 PLAN
+========================================================================
+Target: Sessions/Session_37.md
+
+MATCHED EXISTING NOTES
+  ✓ 'WISC' -> [[WISC]] [npc, exact, model said location]
+  ✓ 'The Temple of Mistra' -> [[The Temple of Mistra]] [location, exact-type]
+  ✓ 'The Two Tits Inn' -> [[The Two Tits Inn]] [location, exact-type]
+  ✓ 'The Student Health Clinic' -> [[The Student Health Clinic]] [location, exact-type]
+  ✓ 'The Skeletal Hand' -> [[Skeletal Hand]] [faction, exact-type]
+  ✓ 'The Raven Queen' -> [[Raven Queen]] [faction, exact]
+  ✓ 'The Skeletal Hand tattoo' -> [[Skeletal Hand]] [faction, exact, model said item]
+  ✓ 'The Corn Husk Dolls' -> [[Cornhusk Dolls]] [item, fuzzy:0.97]
+  ✓ 'The Mask of the Green Dragon' -> [[Mask of the Green Dragon]] [item, exact-type]
+  ✓ 'The Riffle' -> [[Riffle]] [npc, exact-type]
+  ✓ "Theo'din Corvis" -> [[Theo'din Corvis]] [npc, exact-type]
+  ✓ 'Deanira' -> [[Deanira]] [npc, exact-type]
+  ✓ 'Furgus' -> [[Furgus]] [npc, exact-type]
+  ✓ 'Samuel Patel' -> [[Samuel Patel]] [npc, exact-type]
+  ✓ 'Talir' -> [[Talir Rengavi]] [npc, exact-type]
+  ✓ 'Esther' -> [[Ester]] [npc, fuzzy:0.91]
+
+PROPOSED NEW NOTES
+  ? 'The Temple of Raven Queen' -> The Temple of Raven Queen [location, incidental, eligible for creation]
+      Why: Specifically named place mentioned in the session note.
+  ? 'The Matron' -> The Matron [location, incidental, eligible for creation]
+      Why: Specifically named place mentioned in the session note.
+
+REVIEW-ONLY CANDIDATES
+  ? 'The Black Feathers' [faction, recurring] - new faction classification requires review
+      Why: Mentioned in the session note as a recurring organization.
+
+BLOCKED / LOW-SPECIFICITY
+  ! 'The Goliath sailor' [npc] - unnamed incidental NPC
+  ! 'The Head Archivist of the Library' [npc] - unnamed incidental NPC
+  ! 'The Headmaster' [npc] - unnamed incidental NPC
+
+TYPE CONFLICTS
+  (none)
+
+Write policy:
+  - Existing matches are safe link candidates.
+  - Normal mode asks individually before creating each proposed/review note.
+  - --auto creates only eligible new notes; review/blocked/conflict candidates are skipped.
+  - YAML receives only matched or actually-created notes.
+  - No model-generated semantic relationships are written.
+  - Existing files are backed up before modification.
+========================================================================
+
+========================================================================
+CAMPAIGN STATE EXTRACTED FROM THIS SESSION
+========================================================================
+
+QUESTS / OBJECTIVES
+  • Find the missing sanitation workers [active]
+    The group agrees to take a job to find three sanitation workers who vanished in the sewers a few days ago. They have sent 4 people to go look for them, and the group agrees to take the job.
+  • Collect fertility statues [unresolved]
+    Deanira wants to continue her work in collecting 'fertility statues' from around the world.
+
+CLUES / EVIDENCE
+  • Deanira's Pastries and Mask of the Green Dragon [observed]
+    Deanira wakes up early and the smell of fresh pastries wafts upstairs. She gets a mixed berry turnover on her way to the temple to see the Cleric that riffle screamed about in the middle of the night. She gets a few pastries for the others too. Walking through the campus WISC, riffel, Deanira, Theo'din Corvis|theo, and Furgus see people of widely varying ages and backgrounds. At The Temple of Mistra, we introduce ourselves and he introduces himself as Samuel Patel. He tells Deanira she has a minor curse on her and sends her to The Student Health Clinic once the others have their lycanthropy cured. The healer thinks Deanira is there for an abortion, but eventually she hands the healer a letter from the Head cleric explaining the situation. She removes the Mask of the Green Dragon, and suddenly Deanira feels a lot better about WISC.
+
+CAMPAIGN DEVELOPMENTS
+  • Religious Sect Activity [established]
+    A religious sect that worships Torm, the Lawful Good God of self Discipline, has been breaking into and destroying various establishments selling alcohol.
+    Related: Skeletal Hand, alcohol shops, religious sects
+  • Sailor Rumours and Unplottable Island [established]
+    Deanira speaks to the sailors and gets information about a mysterious unchartable island, including sightings near the Barren Toll and Wellview Helm.
+    Related: sailors, unplottable island, fertility statues
+  • Temple of Raven Queen and Black Feathers Order [established]
+    Theo visits the Temple of the Raven Queen to check out the order of Black Feathers, which aims to respect death and prevent dark magics from desecrating the dead.
+    Related: Raven Queen, Black Feathers Order, sensory deprivation
+  • Inn and Fertility Statues [established]
+    Deanira returns to the Two Tits Inn and finds people with phallic items disappearing into the basement, possibly connected to Daggin's Order.
+    Related: Two Tits Inn, fertility statues, Daggin's Order
+
+RUMORS / REPORTED CLAIMS
+  • Skeletal Hand Tattoo [reported]
+    Furgus sees the hint of Skeletal Hand tattoo on his arm covered by a sleeve. The guy leaves not long after, we get the feeling that he used Disguise self when he left, and a black-haired woman we don't recognize followed him out. [[WISC]], riffle, Deanira, Theo'din Corvis|theo, and Furgus think that this could be the guy that the Goliath sailor that WISC arm wrestled with saw and copied his tattoo. [[WISC]], riffle, Deanira, and Theo'din Corvis|theo also remember that the guy that WISC, riffle, Deanira, and Furgus used Speak with Dead on in the cave where WISC, riffle, Deanira, and Furgus killed Christoff said that he was recruited to Skeletal Hand by a young man with blond hair in Amberhold.
+
+OPEN QUESTIONS / MYSTERIES
+  • Deanira's Sailor Interviews [unresolved|suspected]
+    Deanira speaks to the sailors and gets a fair bit of information: Near the Barren Toll, saw lights that looked like they were coming into port, but they were days away from port. When the sun came up the next day there was nothing there. Two days out from Wellview Helm they saw an island in the distance and the next day it was gone. The locations are wildly all over the map. Riffle asks Esther if she remembers when they changed the robes from red to purple. 50-60years ago the robes were changed because the Headmaster at the time didn't like them and preferred a different colour. Riffle learns that it's possible that some people held onto their old robes. When Riffle was framed for killing Daddy Dildo Daggins, the person sighted was wearing red robes.
+
+PARTY TODOs
+  • [[Deanira]] talk to the sailors about rumours about the mysterious unplottable island. [planned]
+    [[Deanira]] talk to the sailors about rumours about the mysterious unplottable island.
+  • Riffle considers buying the drinks at the bar and seeing if they approach them (giving it several days before they attempt this). [planned]
+    Riffle considers buying the drinks at the bar and seeing if they approach them (giving it several days before they attempt this).
+  • shop for the Gala [planned]
+    shop for the Gala
+  • Find the missing sanitation workers [planned]
+    Find the missing sanitation workers
+  • Riffle want to go to Heaven's Touch (the brothel competition) [planned]
+    Riffle want to go to Heaven's Touch (the brothel competition)
+  • Riffle to see Esther (Head Archivist of the Library) [planned]
+    Riffle to see Esther (Head Archivist of the Library)
+
+NOTE: Campaign-state and lore sections are report-only in V4.3.
+They are NOT written into lore/plot notes yet; this lets us validate the
+extraction before deciding the final vault folders/templates.
+========================================================================
+
+Dry run complete. No files changed.
+
+------------------------------------------------------------------------
+Total runtime: 4m 28.49s
+------------------------------------------------------------------------
