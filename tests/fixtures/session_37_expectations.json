@@ -1,0 +1,98 @@
+{
+  "fixture_version": 1,
+  "session": "Sessions/Session_37.md",
+
+  "expected_existing_matches": [
+    "Deanira",
+    "Riffle",
+    "WISC",
+    "Furgus",
+    "Skeletal Hand",
+    "Amberhold",
+    "Daddy Dildo Daggins",
+    "Cornhusk Dolls",
+    "The Two Tits",
+    "Heaven's Touch"
+  ],
+
+  "expected_todos": {
+    "count": 6,
+    "contains": [
+      "mysterious unplottable island",
+      "buying the drinks",
+      "shop for the Gala",
+      "missing sanitation workers",
+      "Heaven's Touch",
+      "Esther"
+    ]
+  },
+
+  "expected_review_candidates": [
+    {
+      "name": "Missing Sanitation Workers",
+      "type": "quest",
+      "exactly": 1
+    }
+  ],
+
+  "forbidden_create_candidates": [
+    {
+      "name": "The fertility statues",
+      "type": "item"
+    },
+    {
+      "name": "fertility statues",
+      "type": "item"
+    },
+    {
+      "name": "Investigate the mysterious island",
+      "type": "quest"
+    },
+    {
+      "name": "Collect fertility statues",
+      "type": "quest"
+    }
+  ],
+
+  "expected_updates": [
+    {
+      "entity": "The Two Tits",
+      "title_contains": "Daggins' Order",
+      "classification": "source-grounded"
+    },
+    {
+      "entity": "Skeletal Hand",
+      "title_contains": "Blond-Haired Youth",
+      "classification": "source-grounded"
+    }
+  ],
+
+  "expected_related_only": [
+    {
+      "entity": "Furgus",
+      "title_contains": "Skeletal Hand tattoo"
+    }
+  ],
+
+  "forbidden_updates": [
+    {
+      "entity": "Cornhusk Dolls",
+      "title_contains": "Temple"
+    },
+    {
+      "entity": "Furgus",
+      "title_contains": "Skeletal Hand tattoo"
+    }
+  ],
+
+  "expected_source_diagnostics": {
+    "torm_min_hits": 1,
+    "blond_min_hits": 2,
+    "two_tits_min_hits": 1,
+    "todo_header_min_hits": 1
+  },
+
+  "safety": {
+    "dry_run_must_not_write": true
+  }
+}
