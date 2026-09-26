@@ -2005,7 +2005,7 @@ def validate_type_folders(
 
 
 # ---------------------------------------------------------------------------
-# V4.6.3 SAFE CHANGE PLANNER
+# V4.7.1 SAFE CHANGE PLANNER
 # ---------------------------------------------------------------------------
 
 def _planner_short(text: str, limit: int = 220) -> str:
@@ -2161,6 +2161,33 @@ def _planner_classify_relation(
     return None
 
 
+def _v471_subject_title_supported(entity_name: str, row: dict[str, Any]) -> bool:
+    """Reject a semantic SUBJECT when its evidence does not support that subject.
+
+    This is intentionally narrow: if an entity is promoted to SUBJECT because it
+    appears in the model-generated title, require source evidence to contain the
+    entity name/tokens too. This prevents scene-adjacent mentions (for example a
+    cornhusk doll placed at a temple) from turning unrelated temple material into
+    a Cornhusk Dolls UPDATE.
+    """
+    evidence = normalize_name(" ".join(str(x) for x in (row.get("evidence") or [])))
+    if not evidence:
+        return True
+
+    key = normalize_name(entity_name)
+    tokens = _planner_entity_tokens(entity_name)
+    if not key or not tokens:
+        return True
+
+    if key in evidence:
+        return True
+
+    ev_tokens = set(evidence.split())
+    overlap = tokens & ev_tokens
+    if len(tokens) == 1:
+        return bool(overlap)
+    return len(overlap) >= min(2, len(tokens))
+
 
 def _v463_evidence_overlap(row: dict[str, Any]) -> bool:
     evidence = " ".join(str(x) for x in (row.get("evidence") or []))
@@ -2298,6 +2325,17 @@ def _planner_entity_state(
             planner_row = dict(row)
             planner_row["_planner_section"] = section
             relation = _planner_classify_relation(entity_name, planner_row)
+
+            # V4.7.1: title-based SUBJECT attribution must be supported by the
+            # row's source evidence when evidence exists. Unsupported model-title
+            # attribution is retained as RELATED context, never an UPDATE.
+            if (
+                relation == "subject"
+                and normalize_name(entity_name) in normalize_name(str(row.get("title") or ""))
+                and not _v471_subject_title_supported(entity_name, row)
+            ):
+                related.append((section, row))
+                continue
 
             # Source-quality guard for the known class of extraction errors where
             # an objective title is plausible but its detail/evidence describes a
@@ -2485,7 +2523,7 @@ def build_change_plan(
 
 def print_change_plan(plan: dict[str, Any]) -> None:
     print("\n" + "=" * 72)
-    print("V4.6.3 SAFE CHANGE PLAN")
+    print("V4.7.1 SAFE CHANGE PLAN")
     print("=" * 72)
 
     print("\nUPDATE EXISTING")
@@ -2631,7 +2669,7 @@ def print_plan(
     conflict_keys: set[str] | None = None,
 ) -> None:
     print("\n" + "=" * 72)
-    print("CAMPAIGN AGENT V4.6.3 PLAN")
+    print("CAMPAIGN AGENT V4.7.1 PLAN")
     print("=" * 72)
     print(f"Target: {target.rel_path}\n")
 
@@ -3040,78 +3078,21 @@ def print_effective_paths(config_path: Path, vault_root: Path, type_folders: dic
 
 
 
-def _main_impl() -> int:
-    parser = argparse.ArgumentParser(description="Process one Obsidian campaign note using local Ollama, or roll back a prior write transaction.")
-    parser.add_argument("note", nargs="?", help="Target Markdown note, relative to vault root or absolute.")
-    parser.add_argument("--config", default="config.yaml", help="Path to config YAML (default: config.yaml).")
-    rollback_mode = parser.add_mutually_exclusive_group()
-    rollback_mode.add_argument("--rollback", metavar="RUN_ID", help="Restore every file changed by a V4.6.3 transaction.")
-    rollback_mode.add_argument("--rollback-file", metavar="PATH", help="Restore one file from a selected V4.6.3 transaction backup.")
-    mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--dry-run", action="store_true", help="Show proposed changes; write nothing.")
-    mode.add_argument("--auto", action="store_true", help="Auto-apply deterministic session history and eligible creations; semantic planner updates remain disabled.")
-    args = parser.parse_args()
+def analyze_note(
+    target: VaultNote,
+    existing_notes: list[VaultNote],
+    config: dict[str, Any],
+    vault_root: Path,
+    type_folders: dict[str, str],
+) -> dict[str, Any]:
+    """Run extraction, resolution, campaign-state cleanup, and planning without writes.
 
-    config_path = Path(args.config).expanduser().resolve()
-    config = load_yaml_file(config_path)
-
-    vault_raw = str(config.get("vault_path", "")).strip()
-    if not vault_raw or vault_raw.startswith("/CHANGE/"):
-        print("Set vault_path in config.yaml first.")
-        return 2
-
-    vault_root = Path(vault_raw).expanduser().resolve()
-    if not vault_root.exists():
-        print(f"Vault path does not exist: {vault_root}")
-        return 2
-
-    backup_dir = vault_root / str(config.get("backup_folder", "_backups"))
-    if args.rollback:
-        return rollback_run(vault_root, backup_dir, args.rollback)
-    if args.rollback_file:
-        return rollback_file(vault_root, backup_dir, args.rollback_file)
-    if not args.note:
-        parser.error("note is required unless --rollback or --rollback-file is used")
-
-    type_folders = normalize_type_folder_config(config.get("type_folders"))
-    create_missing = bool(config.get("create_missing_notes", True))
-    print_effective_paths(config_path, vault_root, type_folders)
-
-    folder_problems = validate_type_folders(vault_root, type_folders, create_missing)
-    if folder_problems:
-        print("\nCONFIGURATION ERROR")
-        print("The following configured entity folders do not exist under the vault root:")
-        for problem in folder_problems:
-            print(f"  - {problem}")
-        print("\nNo Ollama calls were made and no vault changes were made.")
-        print("Check the Config file and Vault root paths printed above.")
-        return 2
-
-    template_files = dict(DEFAULT_TEMPLATE_FILES)
-    template_files.update(config.get("template_files") or {})
-
-    template_folder = str(config.get("template_folder", "_Templates"))
-    exclude_folders = list(config.get("exclude_folders") or [".obsidian", "_backups", "_Templates"])
-
-    target_path = resolve_target(vault_root, args.note)
-    target = read_note(target_path, vault_root, type_folders)
-    existing_notes = scan_vault(vault_root, target_path, type_folders, exclude_folders)
+    This is the V4.7 structured analysis seam. It performs the same analysis used
+    by the CLI but does not collect approvals, create transactions, or mutate the
+    vault.
+    """
     alias_index = build_alias_index(existing_notes)
-
-    print(f"Scanning vault: {vault_root}")
-    print(f"Found {len(existing_notes)} other Markdown notes.")
-    print(f"Calling Ollama model: {config.get('model', 'qwen3:1.7b')}")
-
-    try:
-        result = extract_entities(target, existing_notes, config)
-    except urllib.error.URLError as exc:
-        print(f"\nCould not reach Ollama: {exc}")
-        print("Make sure Ollama is running and ollama_url in config.yaml is correct.")
-        return 3
-    except Exception as exc:
-        print(f"\nOllama/extraction error: {exc}")
-        return 3
-
+    result = extract_entities(target, existing_notes, config)
     fuzzy_threshold = float(config.get("fuzzy_match_threshold", 0.88))
 
     cleaned_entities = []
@@ -3240,11 +3221,111 @@ def _main_impl() -> int:
             type_map.setdefault(key, set()).add(str(entity.get("type") or ""))
     conflict_keys = {key for key, types in type_map.items() if len(types) > 1}
 
+    campaign_state = clean_campaign_state(result)
+    change_plan = build_change_plan(
+        target=target,
+        resolved=resolved_full,
+        conflict_keys=conflict_keys,
+        campaign_state=campaign_state,
+        existing_notes=existing_notes,
+        vault_root=vault_root,
+        type_folders=type_folders,
+    )
+    return {
+        "result": result,
+        "resolved": resolved_full,
+        "conflict_keys": conflict_keys,
+        "campaign_state": campaign_state,
+        "change_plan": change_plan,
+    }
+
+
+def _main_impl() -> int:
+    parser = argparse.ArgumentParser(description="Process one Obsidian campaign note using local Ollama, or roll back a prior write transaction.")
+    parser.add_argument("note", nargs="?", help="Target Markdown note, relative to vault root or absolute.")
+    parser.add_argument("--config", default="config.yaml", help="Path to config YAML (default: config.yaml).")
+    rollback_mode = parser.add_mutually_exclusive_group()
+    rollback_mode.add_argument("--rollback", metavar="RUN_ID", help="Restore every file changed by a V4.6.3 transaction.")
+    rollback_mode.add_argument("--rollback-file", metavar="PATH", help="Restore one file from a selected V4.6.3 transaction backup.")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true", help="Show proposed changes; write nothing.")
+    mode.add_argument("--auto", action="store_true", help="Auto-apply deterministic session history and eligible creations; semantic planner updates remain disabled.")
+    args = parser.parse_args()
+
+    config_path = Path(args.config).expanduser().resolve()
+    config = load_yaml_file(config_path)
+
+    vault_raw = str(config.get("vault_path", "")).strip()
+    if not vault_raw or vault_raw.startswith("/CHANGE/"):
+        print("Set vault_path in config.yaml first.")
+        return 2
+
+    vault_root = Path(vault_raw).expanduser().resolve()
+    if not vault_root.exists():
+        print(f"Vault path does not exist: {vault_root}")
+        return 2
+
+    backup_dir = vault_root / str(config.get("backup_folder", "_backups"))
+    if args.rollback:
+        return rollback_run(vault_root, backup_dir, args.rollback)
+    if args.rollback_file:
+        return rollback_file(vault_root, backup_dir, args.rollback_file)
+    if not args.note:
+        parser.error("note is required unless --rollback or --rollback-file is used")
+
+    type_folders = normalize_type_folder_config(config.get("type_folders"))
+    create_missing = bool(config.get("create_missing_notes", True))
+    print_effective_paths(config_path, vault_root, type_folders)
+
+    folder_problems = validate_type_folders(vault_root, type_folders, create_missing)
+    if folder_problems:
+        print("\nCONFIGURATION ERROR")
+        print("The following configured entity folders do not exist under the vault root:")
+        for problem in folder_problems:
+            print(f"  - {problem}")
+        print("\nNo Ollama calls were made and no vault changes were made.")
+        print("Check the Config file and Vault root paths printed above.")
+        return 2
+
+    template_files = dict(DEFAULT_TEMPLATE_FILES)
+    template_files.update(config.get("template_files") or {})
+
+    template_folder = str(config.get("template_folder", "_Templates"))
+    exclude_folders = list(config.get("exclude_folders") or [".obsidian", "_backups", "_Templates"])
+
+    target_path = resolve_target(vault_root, args.note)
+    target = read_note(target_path, vault_root, type_folders)
+    existing_notes = scan_vault(vault_root, target_path, type_folders, exclude_folders)
+    print(f"Scanning vault: {vault_root}")
+    print(f"Found {len(existing_notes)} other Markdown notes.")
+    print(f"Calling Ollama model: {config.get('model', 'qwen3:1.7b')}")
+
+    try:
+        analysis = analyze_note(
+            target=target,
+            existing_notes=existing_notes,
+            config=config,
+            vault_root=vault_root,
+            type_folders=type_folders,
+        )
+    except urllib.error.URLError as exc:
+        print(f"\nCould not reach Ollama: {exc}")
+        print("Make sure Ollama is running and ollama_url in config.yaml is correct.")
+        return 3
+    except Exception as exc:
+        print(f"\nOllama/extraction error: {exc}")
+        return 3
+
+    result = analysis["result"]
+    resolved_full = analysis["resolved"]
+    conflict_keys = analysis["conflict_keys"]
+    campaign_state = analysis["campaign_state"]
+    change_plan = analysis["change_plan"]
+
     update_reverse_links = bool(config.get("update_reverse_links", True))
 
     print_plan(target, resolved_full, create_missing, conflict_keys)
 
-    campaign_state = clean_campaign_state(result)
     print_campaign_state(campaign_state)
 
     entity_diag = result.get("entity_source_diagnostics", {})
@@ -3276,15 +3357,6 @@ def _main_impl() -> int:
     else:
         print("  WARNING: no evidence windows matched; source grounding needs review.")
 
-    change_plan = build_change_plan(
-        target=target,
-        resolved=resolved_full,
-        conflict_keys=conflict_keys,
-        campaign_state=campaign_state,
-        existing_notes=existing_notes,
-        vault_root=vault_root,
-        type_folders=type_folders,
-    )
     print_change_plan(change_plan)
 
     planner_approvals = collect_write_approvals(

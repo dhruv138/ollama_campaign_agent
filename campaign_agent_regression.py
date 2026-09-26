@@ -102,6 +102,11 @@ def run() -> int:
     parser.add_argument("--config", default=str(ROOT / "config.yaml"), help="Campaign Agent config YAML.")
     parser.add_argument("--fixture", default=str(DEFAULT_FIXTURE), help="Regression expectations JSON.")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Run the Ollama-backed V4.7 analyze_note() planner regression.",
+    )
     args = parser.parse_args()
 
     agent_path = Path(args.agent).expanduser().resolve()
@@ -249,20 +254,143 @@ def run() -> int:
             "Harness is read-only: CLI approval/write path was not invoked",
         )
 
-    # Expectations that depend on Qwen output + build_change_plan are intentionally
-    # deferred until V4.7 exposes a structured analyze_note() seam.
-    deferred_groups = (
-        "expected_review_candidates",
-        "expected_updates",
-        "expected_related_only",
-        "forbidden_updates",
-    )
-    deferred_count = sum(len(fixture.get(k) or []) for k in deferred_groups)
-    if deferred_count:
-        suite.skip(
-            f"{deferred_count} planner expectations deferred to V4.7 analysis seam",
-            "These require the same structured Qwen + planner result used by the production CLI.",
+    # 8. Full V4.7 structured planner regression.
+    # This is opt-in because it calls Ollama and can take several minutes.
+    if not args.full:
+        deferred_groups = (
+            "expected_review_candidates",
+            "expected_updates",
+            "expected_related_only",
+            "forbidden_updates",
         )
+        deferred_count = sum(len(fixture.get(k) or []) for k in deferred_groups)
+        if deferred_count:
+            suite.skip(
+                f"{deferred_count} planner expectations (rerun with --full)",
+                "Full mode calls agent.analyze_note() and therefore Ollama.",
+            )
+    else:
+        if not hasattr(agent, "analyze_note"):
+            suite.check(
+                False,
+                "V4.7 structured analysis seam is available",
+                "campaign_agent.py has no analyze_note(); install V4.7.0 first.",
+            )
+        else:
+            print("\nFull semantic/planner regression")
+            print("This calls Ollama and may take several minutes.")
+            analysis = agent.analyze_note(
+                target=target,
+                existing_notes=existing_notes,
+                config=config,
+                vault_root=vault_root,
+                type_folders=type_folders,
+            )
+            plan = analysis["change_plan"]
+
+            creates = plan.get("creates") or []
+            reviews = plan.get("reviews") or []
+            updates = plan.get("updates") or []
+
+            def same_name(a: Any, b: Any) -> bool:
+                return normalize(agent, a) == normalize(agent, b)
+
+            def typed_rows(rows, name: str, etype: str):
+                return [
+                    row for row in rows
+                    if same_name(row.get("entity"), name)
+                    and str(row.get("type") or "").casefold() == str(etype).casefold()
+                ]
+
+            def find_update(entity_name: str):
+                for row in updates:
+                    if same_name(row.get("entity"), entity_name):
+                        return row
+                return None
+
+            def title_contains(row: dict[str, Any], fragment: str) -> bool:
+                return str(fragment).casefold() in str(row.get("title") or "").casefold()
+
+            # Expected REVIEW candidates, including exact multiplicity.
+            for expected in fixture.get("expected_review_candidates", []):
+                name = str(expected.get("name") or "")
+                etype = str(expected.get("type") or "")
+                wanted = int(expected.get("exactly", 1))
+                found = typed_rows(reviews, name, etype)
+                suite.check(
+                    len(found) == wanted,
+                    f"REVIEW candidate exactly {wanted}x: {name} [{etype}]",
+                    f"found {len(found)}",
+                )
+
+            # Forbidden CREATE candidates must never reach the actionable CREATE bucket.
+            for forbidden in fixture.get("forbidden_create_candidates", []):
+                name = str(forbidden.get("name") or "")
+                etype = str(forbidden.get("type") or "")
+                found = typed_rows(creates, name, etype)
+                suite.check(
+                    not found,
+                    f"Forbidden CREATE absent: {name} [{etype}]",
+                    f"found {len(found)} actionable CREATE row(s)",
+                )
+
+            # Expected semantic UPDATE proposals.
+            for expected in fixture.get("expected_updates", []):
+                entity_name = str(expected.get("entity") or "")
+                fragment = str(expected.get("title_contains") or "")
+                classification = str(expected.get("classification") or "")
+                update = find_update(entity_name)
+                proposals = (update or {}).get("proposals") or []
+                matches = [
+                    p for p in proposals
+                    if title_contains(p, fragment)
+                    and (
+                        not classification
+                        or str(p.get("classification") or "") == classification
+                    )
+                ]
+                suite.check(
+                    bool(matches),
+                    f"UPDATE {entity_name}: {fragment} [{classification}]",
+                    f"{len(matches)} matching proposal(s)",
+                )
+
+            # Expected RELATED-only material must appear as context and not as UPDATE.
+            for expected in fixture.get("expected_related_only", []):
+                entity_name = str(expected.get("entity") or "")
+                fragment = str(expected.get("title_contains") or "")
+                update = find_update(entity_name)
+                related = (update or {}).get("related") or []
+                proposals = (update or {}).get("proposals") or []
+                related_match = any(title_contains(r, fragment) for r in related)
+                proposal_match = any(title_contains(p, fragment) for p in proposals)
+                suite.check(
+                    related_match and not proposal_match,
+                    f"RELATED-only {entity_name}: {fragment}",
+                    f"related={related_match}, update={proposal_match}",
+                )
+
+            # Explicitly forbidden semantic UPDATEs.
+            for forbidden in fixture.get("forbidden_updates", []):
+                entity_name = str(forbidden.get("entity") or "")
+                fragment = str(forbidden.get("title_contains") or "")
+                update = find_update(entity_name)
+                proposals = (update or {}).get("proposals") or []
+                matches = [p for p in proposals if title_contains(p, fragment)]
+                suite.check(
+                    not matches,
+                    f"Forbidden UPDATE absent: {entity_name} / {fragment}",
+                    f"found {len(matches)} matching proposal(s)",
+                )
+
+            # The structured seam itself must expose all agreed V4.7 products.
+            suite.check(
+                all(
+                    key in analysis
+                    for key in ("result", "resolved", "conflict_keys", "campaign_state", "change_plan")
+                ),
+                "analyze_note() exposes the complete structured analysis contract",
+            )
 
     print("\nSummary")
     print("-------")
