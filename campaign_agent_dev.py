@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Campaign Agent V4.14.3 validation + strategy-gated human repair orchestration."""
+"""Campaign Agent V4.15.1 validation + strategy-gated human repair orchestration."""
 from __future__ import annotations
 import argparse, hashlib, json, subprocess, sys, time
 from datetime import datetime, timezone
@@ -11,7 +11,7 @@ AGENT=ROOT/"campaign_agent.py"
 HARNESS=ROOT/"campaign_agent_regression.py"
 REPORTS=ROOT/"_test_runs"
 PIPELINE_HARNESS=ROOT/"campaign_agent_pipeline_regression.py"
-DET=(30,0,1); FULL=(41,0,0); PIPELINE=(24,0)
+DET=(30,0,1); FULL=(41,0,0); PIPELINE=(39,0)
 
 def sha(path:Path):
     if not path.is_file(): return None
@@ -145,7 +145,7 @@ def validation_main(argv=None):
        "agent":str(agent),"agent_sha256":sha(agent),"harness":str(harness),
        "harness_sha256":sha(harness),"fast_only":a.fast_only,"stages":{},"artifacts":{},
        "result":"failed"}
-    print("Campaign Agent Development Pipeline V4.14.3\n=========================================\nValidation engine: frozen campaign baselines + V4.14 pipeline meta-regression")
+    print("Campaign Agent Development Pipeline V4.15.1\n=========================================\nValidation engine: frozen campaign baselines + V4.15 pipeline meta-regression")
     print(f"Agent   : {agent.name}\nHarness : {harness.name}\nReports : {reports}\nRun     : {dev.name}")
 
     syntax_targets=[str(agent),str(harness)]
@@ -182,7 +182,7 @@ def validation_main(argv=None):
     if r["stages"]["full"]["status"]!="pass":
         r["failure_stage"]="full"; return finish(r,dev,started)
 
-    # V4.14.3 meta-regression: protect the repair/development safety policy.
+    # V4.15.1 meta-regression: protect the repair/development safety policy.
     if not PIPELINE_HARNESS.is_file():
         r["stages"]["pipeline_regression"]={"status":"fail",
             "error":f"Pipeline regression harness not found: {PIPELINE_HARNESS}"}
@@ -263,7 +263,7 @@ def repair_main(handoff_arg:str, report_root:str|None=None, yes_test:bool=False)
                      "vault_writes":False,"fixture_changes":False,
                      "human_test_approval_required":True}}
 
-    print("Campaign Agent Repair Orchestrator V4.14.3")
+    print("Campaign Agent Repair Orchestrator V4.15.1")
     print("========================================")
     print(f"Handoff : {handoff}")
     print(f"Run     : {repair_run}")
@@ -291,7 +291,7 @@ def repair_main(handoff_arg:str, report_root:str|None=None, yes_test:bool=False)
     plan=diagnosis_dir/"repair_plan.json"
     state["artifacts"]["repair_plan"]=str(plan)
 
-    # V4.14.3 strategy gate: unsupported strategies stop safely before candidate generation.
+    # V4.15.1 strategy gate: unsupported strategies stop safely before candidate generation.
     plan_data=_load_json(plan)
     strategy=plan_data.get("repair_strategy") or {}
     state["repair_strategy"]=strategy
@@ -302,7 +302,7 @@ def repair_main(handoff_arg:str, report_root:str|None=None, yes_test:bool=False)
         state["finished_at"]=datetime.now(timezone.utc).isoformat()
         report=repair_run/"repair_orchestration.json"
         report.write_text(json.dumps(state,indent=2)+"\n")
-        print("\nV4.14.3 Strategy Gate")
+        print("\nV4.15.1 Strategy Gate")
         print("-------------------")
         print(f"Strategy : {strategy.get('strategy') or 'unknown'}")
         print(f"Confidence: {strategy.get('confidence') or 'unknown'}")
@@ -314,7 +314,7 @@ def repair_main(handoff_arg:str, report_root:str|None=None, yes_test:bool=False)
         return 3
     state["stages"]["strategy_gate"]={"status":"pass","strategy":strategy.get("strategy")}
 
-    # 3) Generate a NEW candidate. V4.14.3 repairer re-verifies the strategy and source hash.
+    # 3) Generate a NEW candidate. V4.15.1 repairer re-verifies the strategy and source hash.
     candidate_root=repair_run/"candidates"
     rc,_=_run_capture([sys.executable,str(REPAIRER),str(plan),
                        "--candidate-root",str(candidate_root)],repair_run/"repair_output.txt")
@@ -373,7 +373,7 @@ def repair_main(handoff_arg:str, report_root:str|None=None, yes_test:bool=False)
     report=repair_run/"repair_orchestration.json"
     report.write_text(json.dumps(state,indent=2)+"\n")
 
-    print("\nV4.14.3 Repair Summary")
+    print("\nV4.15.1 Repair Summary")
     print("--------------------")
     print(f"Candidate : {candidate}")
     print(f"Diff      : {diff}")
@@ -386,7 +386,7 @@ def repair_main(handoff_arg:str, report_root:str|None=None, yes_test:bool=False)
     return rc
 
 def main():
-    ap=argparse.ArgumentParser(description="Campaign Agent V4.14.3 development + strategy-gated repair orchestrator.")
+    ap=argparse.ArgumentParser(description="Campaign Agent V4.15.1 development + strategy-gated repair orchestrator.")
     ap.add_argument("--repair",help="Failed V4.9/V4.12 handoff.json to diagnose, analyze, repair, and optionally test.")
     ap.add_argument("--yes-test",action="store_true",
                     help="Explicitly approve testing the generated candidate (does not approve promotion).")
