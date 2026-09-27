@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-Read-only regression harness for Campaign Agent V4.6.3.
+Read-only regression harness for Campaign Agent V4.8 tooling.
 
-Phase 1 deliberately tests deterministic behavior without calling Ollama and
-without invoking campaign_agent._main_impl(). It cannot write to the vault.
+Deterministic mode never calls Ollama. --full exercises the structured
+analyze_note() seam. Neither mode invokes campaign_agent._main_impl() or writes
+to the campaign vault.
+
+V4.8 adds machine-readable run artifacts under _test_runs/.
 
 Usage:
     python3 campaign_agent_regression.py
@@ -17,6 +20,7 @@ import argparse
 import importlib.util
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -55,8 +59,11 @@ class Suite:
         self.passed = 0
         self.failed = 0
         self.skipped = 0
+        self.results: list[dict[str, Any]] = []
 
     def check(self, ok: bool, label: str, detail: str = "") -> None:
+        status = "pass" if ok else "fail"
+        self.results.append({"status": status, "label": label, "detail": detail})
         if ok:
             self.passed += 1
             print(f"PASS  {label}")
@@ -70,9 +77,81 @@ class Suite:
 
     def skip(self, label: str, detail: str) -> None:
         self.skipped += 1
+        self.results.append({"status": "skip", "label": label, "detail": detail})
         print(f"SKIP  {label}")
         if self.verbose:
             print(f"      {detail}")
+
+
+def write_run_artifacts(
+    *,
+    suite: Suite,
+    report_root: Path,
+    mode: str,
+    agent_path: Path,
+    fixture_path: Path,
+    session_rel: str,
+    vault_root: Path,
+    started_at: datetime,
+) -> Path:
+    """Write regression metadata only; never write inside the campaign vault."""
+    finished_at = datetime.now(timezone.utc)
+    stamp = started_at.astimezone().strftime("%Y%m%d_%H%M%S")
+    run_dir = report_root / f"{stamp}_{mode}"
+    suffix = 1
+    while run_dir.exists():
+        run_dir = report_root / f"{stamp}_{mode}_{suffix}"
+        suffix += 1
+    run_dir.mkdir(parents=True, exist_ok=False)
+
+    failures = [r for r in suite.results if r["status"] == "fail"]
+    skips = [r for r in suite.results if r["status"] == "skip"]
+    payload = {
+        "schema_version": 1,
+        "mode": mode,
+        "result": "fail" if suite.failed else "pass",
+        "started_at": started_at.isoformat(),
+        "finished_at": finished_at.isoformat(),
+        "duration_seconds": round((finished_at - started_at).total_seconds(), 3),
+        "agent": str(agent_path),
+        "fixture": str(fixture_path),
+        "session": session_rel,
+        "vault": str(vault_root),
+        "counts": {
+            "passed": suite.passed,
+            "failed": suite.failed,
+            "skipped": suite.skipped,
+        },
+        "failures": failures,
+        "skips": skips,
+        "checks": suite.results,
+    }
+    (run_dir / "regression.json").write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    summary_lines = [
+        "Campaign Agent Regression",
+        "=========================",
+        f"Mode:    {mode}",
+        f"Result:  {payload['result'].upper()}",
+        f"Passed:  {suite.passed}",
+        f"Failed:  {suite.failed}",
+        f"Skipped: {suite.skipped}",
+        f"Seconds: {payload['duration_seconds']}",
+    ]
+    if failures:
+        summary_lines.extend(["", "Failures", "--------"])
+        for row in failures:
+            summary_lines.append(f"- {row['label']}")
+            if row.get("detail"):
+                summary_lines.append(f"  {row['detail']}")
+    (run_dir / "summary.txt").write_text(
+        "\n".join(summary_lines) + "\n",
+        encoding="utf-8",
+    )
+    return run_dir
 
 
 def resolve_session_path(agent, config: dict[str, Any], fixture: dict[str, Any]) -> tuple[Path, Path]:
@@ -107,7 +186,18 @@ def run() -> int:
         action="store_true",
         help="Run the Ollama-backed V4.7 analyze_note() planner regression.",
     )
+    parser.add_argument(
+        "--report-root",
+        default=str(ROOT / "_test_runs"),
+        help="Directory for machine-readable regression artifacts.",
+    )
+    parser.add_argument(
+        "--no-report",
+        action="store_true",
+        help="Do not write regression artifacts.",
+    )
     args = parser.parse_args()
+    started_at = datetime.now(timezone.utc)
 
     agent_path = Path(args.agent).expanduser().resolve()
     config_path = Path(args.config).expanduser().resolve()
@@ -397,6 +487,22 @@ def run() -> int:
     print(f"{suite.passed} passed")
     print(f"{suite.failed} failed")
     print(f"{suite.skipped} skipped")
+
+    if not args.no_report:
+        report_root = Path(args.report_root).expanduser().resolve()
+        run_dir = write_run_artifacts(
+            suite=suite,
+            report_root=report_root,
+            mode="full" if args.full else "deterministic",
+            agent_path=agent_path,
+            fixture_path=fixture_path,
+            session_rel=str(fixture.get("session") or ""),
+            vault_root=vault_root,
+            started_at=started_at,
+        )
+        print(f"Report : {run_dir}")
+        print(f"         {run_dir / 'regression.json'}")
+        print(f"         {run_dir / 'summary.txt'}")
 
     return 1 if suite.failed else 0
 
