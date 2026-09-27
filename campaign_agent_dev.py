@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Campaign Agent V4.9 validation + diagnostic handoff orchestrator."""
+"""Campaign Agent V4.12 validation + human-gated repair orchestration."""
 from __future__ import annotations
 import argparse, hashlib, json, subprocess, sys, time
 from datetime import datetime, timezone
@@ -122,11 +122,11 @@ def finish(r,dev,started):
     (dev/"summary.txt").write_text(summary)
     return 0 if ready else 1
 
-def main():
+def validation_main(argv=None):
     ap=argparse.ArgumentParser()
     ap.add_argument("--agent",default=str(AGENT)); ap.add_argument("--harness",default=str(HARNESS))
     ap.add_argument("--report-root",default=str(REPORTS)); ap.add_argument("--fast-only",action="store_true")
-    a=ap.parse_args(); agent=Path(a.agent).expanduser().resolve()
+    a=ap.parse_args(argv); agent=Path(a.agent).expanduser().resolve()
     harness=Path(a.harness).expanduser().resolve(); reports=Path(a.report_root).expanduser().resolve()
     started=datetime.now(timezone.utc); stamp=started.astimezone().strftime("%Y%m%d_%H%M%S")
     dev=reports/f"{stamp}_dev"; i=1
@@ -136,7 +136,7 @@ def main():
        "agent":str(agent),"agent_sha256":sha(agent),"harness":str(harness),
        "harness_sha256":sha(harness),"fast_only":a.fast_only,"stages":{},"artifacts":{},
        "result":"failed"}
-    print("Campaign Agent Development Pipeline V4.9\n========================================")
+    print("Campaign Agent Development Pipeline V4.12\n=========================================\nValidation engine: V4.9 frozen baseline")
     print(f"Agent   : {agent.name}\nHarness : {harness.name}\nReports : {reports}\nRun     : {dev.name}")
 
     rc,o=run([sys.executable,"-m","py_compile",str(agent),str(harness)])
@@ -172,4 +172,180 @@ def main():
         r["failure_stage"]="full"; return finish(r,dev,started)
     r["result"]="ready-for-review"; return finish(r,dev,started)
 
-if __name__=="__main__": raise SystemExit(main())
+DIAGNOSER=ROOT/"campaign_agent_diagnose.py"
+ANALYZER=ROOT/"campaign_agent_analyze.py"
+REPAIRER=ROOT/"campaign_agent_repair.py"
+
+def _load_json(path:Path):
+    data=json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data,dict): raise ValueError(f"Expected JSON object: {path}")
+    return data
+
+def _resolve_artifact(raw):
+    if not raw: return None
+    p=Path(str(raw)).expanduser()
+    if not p.is_absolute(): p=(ROOT/p).resolve()
+    return p
+
+def _run_capture(cmd, log_path:Path):
+    rc,out=run(cmd)
+    log_path.write_text(out)
+    return rc,out
+
+def _candidate_from_manifest(path:Path):
+    m=_load_json(path)
+    if m.get("kind")!="campaign-agent-candidate-manifest":
+        raise ValueError("Repairer did not produce a candidate manifest.")
+    p=_resolve_artifact((m.get("candidate") or {}).get("path"))
+    if not p or not p.is_file(): raise FileNotFoundError("Generated candidate is unavailable.")
+    expected=(m.get("candidate") or {}).get("sha256")
+    if expected and sha(p)!=expected:
+        raise RuntimeError("Generated candidate SHA-256 does not match its manifest.")
+    return p,m
+
+def repair_main(handoff_arg:str, report_root:str|None=None, yes_test:bool=False):
+    handoff=Path(handoff_arg).expanduser().resolve()
+    if not handoff.is_file(): raise FileNotFoundError(f"Handoff not found: {handoff}")
+    h=_load_json(handoff)
+    if h.get("kind")!="campaign-agent-development-handoff":
+        raise ValueError("Input is not a Campaign Agent development handoff.")
+    if h.get("result")!="failed":
+        raise RuntimeError("Repair mode requires a failed handoff.")
+
+    for tool in (DIAGNOSER,ANALYZER,REPAIRER):
+        if not tool.is_file(): raise FileNotFoundError(f"Required V4.10/V4.11 tool missing: {tool}")
+
+    reports=Path(report_root).expanduser().resolve() if report_root else REPORTS
+    started=datetime.now(timezone.utc)
+    stamp=started.astimezone().strftime("%Y%m%d_%H%M%S")
+    repair_run=reports/f"{stamp}_repair"
+    i=1
+    while repair_run.exists(): repair_run=reports/f"{stamp}_repair_{i}"; i+=1
+    repair_run.mkdir(parents=True)
+
+    state={"schema_version":1,"kind":"campaign-agent-repair-orchestration",
+           "pipeline_version":"4.12","started_at":started.isoformat(),
+           "source_handoff":str(handoff),"stages":{},"artifacts":{},
+           "safety":{"trusted_agent_replacement":False,"git_commit":False,
+                     "vault_writes":False,"fixture_changes":False,
+                     "human_test_approval_required":True}}
+
+    print("Campaign Agent Repair Orchestrator V4.12")
+    print("========================================")
+    print(f"Handoff : {handoff}")
+    print(f"Run     : {repair_run}")
+
+    # 1) Package diagnosis into this orchestration run.
+    diagnosis_dir=repair_run/"diagnosis"
+    rc,_=_run_capture([sys.executable,str(DIAGNOSER),str(handoff),
+                       "--output-dir",str(diagnosis_dir)],repair_run/"diagnose_output.txt")
+    state["stages"]["diagnose"]={"status":"pass" if rc==0 else "fail","returncode":rc}
+    if rc:
+        state["result"]="failed"; state["failure_stage"]="diagnose"
+        (repair_run/"repair_orchestration.json").write_text(json.dumps(state,indent=2)+"\n")
+        return 1
+    diagnosis=diagnosis_dir/"diagnosis.json"
+    state["artifacts"]["diagnosis"]=str(diagnosis)
+
+    # 2) Analyze evidence and produce a repair plan.
+    rc,_=_run_capture([sys.executable,str(ANALYZER),str(diagnosis),
+                       "--output-dir",str(diagnosis_dir)],repair_run/"analyze_output.txt")
+    state["stages"]["analyze"]={"status":"pass" if rc==0 else "fail","returncode":rc}
+    if rc:
+        state["result"]="failed"; state["failure_stage"]="analyze"
+        (repair_run/"repair_orchestration.json").write_text(json.dumps(state,indent=2)+"\n")
+        return 1
+    plan=diagnosis_dir/"repair_plan.json"
+    state["artifacts"]["repair_plan"]=str(plan)
+
+    # 3) Generate a NEW candidate. V4.11 verifies the analyzed source hash.
+    candidate_root=repair_run/"candidates"
+    rc,_=_run_capture([sys.executable,str(REPAIRER),str(plan),
+                       "--candidate-root",str(candidate_root)],repair_run/"repair_output.txt")
+    state["stages"]["generate_candidate"]={"status":"pass" if rc==0 else "fail","returncode":rc}
+    if rc:
+        state["result"]="failed"; state["failure_stage"]="generate_candidate"
+        (repair_run/"repair_orchestration.json").write_text(json.dumps(state,indent=2)+"\n")
+        return 1
+
+    manifests=sorted(candidate_root.glob("*/candidate_manifest.json"),
+                     key=lambda p:p.stat().st_mtime_ns,reverse=True)
+    if not manifests: raise FileNotFoundError("Repairer completed but no candidate manifest was found.")
+    candidate,manifest=_candidate_from_manifest(manifests[0])
+    diff=_resolve_artifact((manifest.get("artifacts") or {}).get("diff"))
+    state["artifacts"].update(candidate=str(candidate),candidate_manifest=str(manifests[0]),
+                              candidate_diff=str(diff) if diff else None)
+    state["candidate_sha256"]=sha(candidate)
+
+    print("\nCandidate diff")
+    print("--------------")
+    if diff and diff.is_file(): print(diff.read_text(),end="")
+    else: print("(diff unavailable)")
+
+    # 4) Human gate. --yes-test is explicit CLI approval, useful for scripted/manual reruns.
+    approved=yes_test
+    if not approved:
+        if not sys.stdin.isatty():
+            print("\nCandidate generated but testing requires explicit approval.")
+            print(f"Review: {diff}")
+            print(f"Then rerun with: python3 {Path(__file__).name} --repair {handoff} --yes-test")
+            state["result"]="awaiting-test-approval"
+            state["stages"]["human_test_approval"]={"status":"pending"}
+            (repair_run/"repair_orchestration.json").write_text(json.dumps(state,indent=2)+"\n")
+            return 2
+        ans=input("\nRun the frozen V4.9 validation pipeline against this generated candidate? [y/N] ").strip().casefold()
+        approved=ans in {"y","yes"}
+
+    if not approved:
+        state["result"]="awaiting-test-approval"
+        state["stages"]["human_test_approval"]={"status":"declined"}
+        report=repair_run/"repair_orchestration.json"
+        report.write_text(json.dumps(state,indent=2)+"\n")
+        print(f"\nStopped before testing. Candidate preserved at: {candidate}")
+        print(f"Report: {report}")
+        return 2
+
+    state["stages"]["human_test_approval"]={"status":"approved"}
+
+    # 5) Validate candidate with the frozen validation path. No promotion follows.
+    print("\nApproval received. Running frozen validation pipeline against candidate only.")
+    validation_args=["--agent",str(candidate),"--report-root",str(reports)]
+    rc=validation_main(validation_args)
+    state["stages"]["candidate_validation"]={"status":"pass" if rc==0 else "fail","returncode":rc}
+    state["result"]="ready-for-review" if rc==0 else "candidate-validation-failed"
+    state["finished_at"]=datetime.now(timezone.utc).isoformat()
+    report=repair_run/"repair_orchestration.json"
+    report.write_text(json.dumps(state,indent=2)+"\n")
+
+    print("\nV4.12 Repair Summary")
+    print("--------------------")
+    print(f"Candidate : {candidate}")
+    print(f"Diff      : {diff}")
+    print(f"Validation: {'PASS' if rc==0 else 'FAIL'}")
+    print("Promotion : NOT PERFORMED")
+    print("Git       : NOT MODIFIED")
+    print("Vault     : NOT MODIFIED")
+    print(f"Report    : {report}")
+    if rc==0: print("\nREADY FOR HUMAN REVIEW")
+    return rc
+
+def main():
+    ap=argparse.ArgumentParser(description="Campaign Agent V4.12 development + repair orchestrator.")
+    ap.add_argument("--repair",help="Failed V4.9/V4.12 handoff.json to diagnose, analyze, repair, and optionally test.")
+    ap.add_argument("--yes-test",action="store_true",
+                    help="Explicitly approve testing the generated candidate (does not approve promotion).")
+    ap.add_argument("--agent",default=str(AGENT))
+    ap.add_argument("--harness",default=str(HARNESS))
+    ap.add_argument("--report-root",default=str(REPORTS))
+    ap.add_argument("--fast-only",action="store_true")
+    a=ap.parse_args()
+    if a.repair:
+        if a.fast_only:
+            raise SystemExit("--fast-only is not supported in repair mode; repaired candidates require full validation.")
+        return repair_main(a.repair,a.report_root,a.yes_test)
+    argv=["--agent",a.agent,"--harness",a.harness,"--report-root",a.report_root]
+    if a.fast_only: argv.append("--fast-only")
+    return validation_main(argv)
+
+if __name__=="__main__":
+    raise SystemExit(main())
