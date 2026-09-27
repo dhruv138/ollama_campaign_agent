@@ -1,6 +1,6 @@
 # Campaign Agent Architecture & Evolution
 
-> **Current milestone:** V4.5.4  
+> **Current milestone:** V4.14.1  
 > **Purpose:** Safely ingest D&D session notes into an Obsidian campaign vault using a local LLM while keeping campaign canon human-controlled, evidence-backed, and reversible.
 
 ## Overview
@@ -519,6 +519,285 @@ Reversibility          ↑
 
 ---
 
+
+# Phase 9 — Rollback Hardening and Frozen Regression Baselines
+
+Development after V4.5.4 focused first on protecting already-correct behavior rather than adding autonomy.
+
+Rollback handling was hardened so that restoration does not silently overwrite a file that has changed since the transaction being restored. The development process also gained a permanent regression harness centered on Session 37.
+
+Two Campaign Agent baselines are now frozen:
+
+```text
+Deterministic regression
+30 passed / 0 failed / 1 skipped
+
+Full semantic/planner regression
+41 passed / 0 failed / 0 skipped
+```
+
+These baselines are a development contract.
+
+A proposed change is not considered safe merely because it fixes the immediate defect. It must also preserve the previously demonstrated behavior encoded by the regression suite.
+
+The governing rule is:
+
+> **Do not weaken a regression expectation merely to make a candidate pass.**
+
+This moved regression evidence into the same safety model as source evidence and transaction history.
+
+---
+
+# Phase 10 — Development Candidate Pipeline
+
+V4.8 through V4.9 separated development from the trusted Campaign Agent.
+
+Changes are tested as candidate agents rather than being written directly over `campaign_agent.py`.
+
+Conceptually:
+
+```mermaid
+flowchart TD
+    S[Candidate Source] --> Y[Syntax Validation]
+    Y --> D[Deterministic Regression]
+    D --> F[Full Regression]
+    F --> H[Development Handoff]
+    H --> R{Human Review}
+    R -->|Accepted| P[Manual Promotion]
+    R -->|Rejected| X[Discard Candidate]
+```
+
+The development pipeline records machine-readable reports and handoff artifacts under `_test_runs/`.
+
+A successful candidate must preserve the frozen baselines:
+
+```text
+syntax        PASS
+deterministic 30 / 0 / 1
+full          41 / 0 / 0
+```
+
+Passing validation does **not** automatically promote the candidate.
+
+The trusted agent, Git history, and campaign vault remain outside the automatic development write path.
+
+---
+
+# Phase 11 — Diagnose → Analyze → Repair
+
+V4.10 through V4.12 introduced a second pipeline around failed development candidates.
+
+Its purpose is to help diagnose and repair software regressions without giving the repair system authority over the trusted agent.
+
+```mermaid
+flowchart LR
+    H[Failed Handoff] --> D[Diagnose]
+    D --> A[Analyze]
+    A --> R[Repair Candidate]
+    R --> V[Frozen Validation]
+    V --> U{Human Review}
+    U -->|Approved later| P[Manual Promotion]
+    U -->|Rejected| X[Discard]
+```
+
+The stages are intentionally separate:
+
+| Stage | Responsibility |
+|---|---|
+| Diagnose | Package failure evidence from a development handoff |
+| Analyze | Correlate failed expectations with candidate source |
+| Repair | Generate a new candidate only when the repair policy permits it |
+| Validate | Run syntax and frozen regression baselines |
+| Human review | Decide whether a validated candidate should ever become trusted |
+
+The repair system verifies the analyzed candidate's SHA-256 before generating a new candidate. This prevents a repair plan derived from stale source from being applied to different source.
+
+The repair tooling does not automatically:
+
+- replace `campaign_agent.py`
+- modify regression fixtures
+- write campaign canon
+- commit or tag Git
+- promote a candidate
+
+---
+
+# Phase 12 — V4.13 Strategy-Gated Repair
+
+V4.13 added an explicit repair-strategy contract.
+
+The analyzer can classify evidence into strategies such as:
+
+```text
+literal-replacement
+conditional-logic
+missing-branch
+filter-or-gate
+unknown
+```
+
+Classification does not imply authorization.
+
+In the current policy, only a narrowly proven `literal-replacement` may authorize automatic candidate generation.
+
+V4.13.1 tightened that definition further:
+
+> An automatic literal repair is eligible only when the observed erroneous value is a unique string literal used directly as the value of a Python `return` statement.
+
+For example, this can be eligible:
+
+```python
+return "Missing Sewer Workers"
+```
+
+These are **not** automatically eligible:
+
+```python
+if name == "Missing Sewer Workers":
+```
+
+```python
+x = "Missing Sewer Workers"
+```
+
+```python
+return name.replace("Sanitation", "Sewer")
+```
+
+The repairer independently enforces the same restriction. This is deliberate defense in depth: analyzer authorization alone is insufficient.
+
+Unsupported strategies stop at a review gate:
+
+```text
+Strategy : conditional-logic
+Candidate: NOT GENERATED
+REVIEW REQUIRED
+```
+
+V4.13.2 also hardened the review-only analyzer path after testing exposed an exception in source-context aggregation. The important safety behavior was preserved: the exception failed closed and no candidate was generated.
+
+---
+
+# Phase 13 — V4.14 Repair-Pipeline Regression
+
+V4.14 introduced a separate regression suite for the development and repair machinery itself:
+
+```text
+campaign_agent_regression.py
+    protects campaign behavior and canon-facing logic
+
+campaign_agent_pipeline_regression.py
+    protects repair-policy and development safety behavior
+```
+
+V4.14.1 currently demonstrates:
+
+```text
+Repair-pipeline regression
+24 passed / 0 failed
+```
+
+The permanent policy tests include both sides of the V4.13 repair boundary.
+
+### Safe literal defect
+
+A synthetic candidate containing:
+
+```python
+return "Missing Sewer Workers"
+```
+
+must be classified as `literal-replacement`, must explicitly authorize candidate generation, and may produce exactly one narrowly repaired candidate.
+
+### Computed / conditional defect
+
+A synthetic candidate containing:
+
+```python
+return name.replace("Sanitation", "Sewer")
+```
+
+must **not** be classified as an automatically repairable literal replacement.
+
+It must require human review, the repairer must independently refuse it, and no candidate may be generated.
+
+The suite also verifies that running these tests leaves the following unchanged:
+
+- trusted `campaign_agent.py`
+- frozen Session 37 regression fixture
+- Git working-tree state
+- campaign vault
+
+This creates two independent regression layers:
+
+```mermaid
+flowchart LR
+    C[Campaign Agent Change] --> CR[Campaign Regression]
+    R[Repair Infrastructure Change] --> PR[Pipeline Regression]
+
+    CR --> B1[30/0/1 deterministic]
+    CR --> B2[41/0/0 full]
+    PR --> B3[24/0 repair-policy]
+
+    B1 --> H[Human Review]
+    B2 --> H
+    B3 --> H
+```
+
+The architectural rule is now broader than protecting campaign behavior alone:
+
+> **The pipeline tests the agent, and the meta-regression suite tests the pipeline.**
+
+---
+
+# Current Development Safety Boundary
+
+The Campaign Agent now has two distinct human-controlled safety boundaries.
+
+The first protects campaign canon:
+
+```text
+Session
+  ↓
+LLM interpretation
+  ↓
+Python validation
+  ↓
+Change plan
+  ↓
+Human approval
+  ↓
+Transaction
+  ↓
+Vault
+```
+
+The second protects Campaign Agent software:
+
+```text
+Code change / failed candidate
+  ↓
+Diagnosis
+  ↓
+Evidence-based analysis
+  ↓
+Repair-strategy gate
+  ↓
+Candidate generation, only if explicitly allowed
+  ↓
+Frozen regression validation
+  ↓
+Human review
+  ↓
+Manual promotion
+```
+
+Neither pipeline treats successful AI output as authority.
+
+In both cases, automation produces evidence and candidates while a human-controlled boundary determines what becomes trusted state.
+
+---
+
 # Features Deliberately Deferred
 
 Several capabilities have intentionally **not** been implemented yet.
@@ -738,9 +1017,9 @@ It would represent an actual **campaign knowledge graph**.
 
 # Current Design Principle
 
-V4.5.4 should not be viewed as the final Campaign Agent.
+V4.14.1 should not be viewed as the final Campaign Agent.
 
-It represents the point at which the ingestion foundation became trustworthy enough to build more sophisticated features on top of it.
+It represents a point where both the ingestion foundation and the software repair pipeline have explicit, regression-tested safety boundaries.
 
 The current philosophy is:
 
@@ -751,6 +1030,10 @@ The current philosophy is:
 > **Humans authorize.**
 >
 > **Transactions protect.**
+>
+> **Regressions preserve demonstrated behavior.**
+>
+> **Repair gates constrain automation.**
 >
 > **Obsidian remembers.**
 
@@ -773,13 +1056,20 @@ The current philosophy is:
 - Transaction manifests
 - Pre-modification backups
 - Selective file rollback
+- Rollback conflict protection
 - Repeat-run idempotency
+- Frozen deterministic regression baseline: 30/0/1
+- Frozen full regression baseline: 41/0/0
+- Candidate-only development pipeline
+- Diagnostic failure packages
+- Evidence-based repair plans
+- SHA-256 stale-source protection
+- Strategy-gated candidate repair
+- Human-gated candidate validation and promotion
+- Repair-pipeline meta-regression suite: 24/0
 
 **Deferred / future work**
 
-- Rollback conflict detection
-- Transaction hashes
-- Rollback audit records
 - Agent-side RAG
 - Typed relationships
 - Knowledge-state transitions
@@ -837,7 +1127,36 @@ V4.5.4
 Transactions + rollback
     │
     ▼
-     ?
+V4.5.x–V4.7
+Rollback hardening + regression foundation
+    │
+    ▼
+V4.8–V4.9
+Candidate development pipeline + handoffs
+    │
+    ▼
+V4.10
+Diagnostic packaging + evidence analysis
+    │
+    ▼
+V4.11
+Narrow candidate repair generation
+    │
+    ▼
+V4.12
+Repair orchestration + human test gate
+    │
+    ▼
+V4.13–V4.13.2
+Strategy-gated repair + fail-closed hardening
+    │
+    ▼
+V4.14.1
+Repair-pipeline meta-regression: 24/0
+    │
+    ▼
+Next
+Integrate pipeline regression into routine development validation
 ```
 
-The next version should build on this foundation rather than increasing LLM autonomy.
+The next step should integrate the repair-pipeline regression suite into routine development validation while preserving the existing human promotion gate, rather than increasing LLM autonomy.
