@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Campaign Agent V4.11 candidate repair generator.
+# Campaign Agent V4.13.1 strategy-gated candidate repair generator.
 from __future__ import annotations
 import argparse, ast, difflib, hashlib, json, re
 from datetime import datetime, timezone
@@ -21,7 +21,9 @@ def norm(x: Any)->str: return re.sub(r"\s+"," ",str(x or "")).strip()
 
 def positions(source:str,value:str):
     tree=ast.parse(source); out=[]
-    for n in ast.walk(tree):
+    for parent in ast.walk(tree):
+        if not isinstance(parent,ast.Return): continue
+        n=parent.value
         if isinstance(n,ast.Constant) and isinstance(n.value,str) and n.value==value:
             out.append((n.lineno,n.col_offset,int(n.end_lineno),int(n.end_col_offset)))
     return out
@@ -73,25 +75,37 @@ def choose(plan,source):
     preferred=[v for v in viable if v["suspected"]]
     pool=preferred if preferred else viable
     if len(pool)!=1:
-        raise RuntimeError(f"Ambiguous/unsupported repair: found {len(pool)} candidate literal locations.")
+        raise RuntimeError(f"Ambiguous/unsupported repair: found {len(pool)} direct-return literal locations.")
     return pool[0]
 
 def unique_dir(root:Path)->Path:
     root.mkdir(parents=True,exist_ok=True)
-    stem=datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")+"_v4_11"
+    stem=datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")+"_v4_13_1"
     p=root/stem; i=1
     while p.exists():
         p=root/f"{stem}_{i:02d}"; i+=1
     return p
 
 def main()->int:
-    ap=argparse.ArgumentParser(description="Generate a safe V4.11 repaired candidate.")
+    ap=argparse.ArgumentParser(description="Generate a safe V4.13 strategy-gated repaired candidate.")
     ap.add_argument("repair_plan")
     ap.add_argument("--candidate-root",default="_test_runs/candidates")
     a=ap.parse_args()
     plan_path=Path(a.repair_plan).expanduser().resolve()
     plan=load_json(plan_path)
     if plan.get("kind")!="campaign-agent-repair-plan": raise ValueError("Wrong repair plan kind.")
+
+    strategy=plan.get("repair_strategy") or {}
+    strategy_name=norm(strategy.get("strategy"))
+    if strategy_name!="literal-replacement":
+        raise RuntimeError(
+            f"REVIEW ONLY: repair strategy {strategy_name or 'missing'} is not eligible "
+            "for automatic candidate generation in V4.13."
+        )
+    if strategy.get("automatic_candidate_allowed") is not True:
+        raise RuntimeError("REVIEW ONLY: analyzer did not authorize automatic candidate generation.")
+    if norm(strategy.get("required_validation"))!="full-frozen-regression":
+        raise RuntimeError("Unsafe or unknown validation contract; refusing candidate generation.")
 
     boundary=plan.get("proposed_change") or {}
     if boundary.get("target")!="candidate-agent-only": raise RuntimeError("Candidate-only authorization missing.")
@@ -129,11 +143,13 @@ def main()->int:
     diff.write_text(diff_text,encoding="utf-8")
 
     m={
-      "schema_version":1,"kind":"campaign-agent-candidate-manifest","generator_version":"4.11",
+      "schema_version":1,"kind":"campaign-agent-candidate-manifest","generator_version":"4.13.1",
       "created_at":datetime.now(timezone.utc).isoformat(),"result":"candidate-created",
       "inputs":{"repair_plan":str(plan_path),"source_candidate":str(source_path),"source_sha256":current_hash},
       "candidate":{"path":str(candidate),"sha256":new_hash,"syntax_valid":True},
-      "repair":{"classification":plan.get("classification"),"failed_check":repair["label"],
+      "repair":{"classification":plan.get("classification"),"strategy":strategy_name,
+                 "strategy_confidence":strategy.get("confidence"),
+                 "failed_check":repair["label"],
                 "function":repair["function"],"actual":repair["actual"],"expected":repair["expected"],
                 "old_literal":old_literal,"new_literal":new_literal,"source_line":repair["position"][0],
                 "method":"exact-python-string-literal-replacement"},
@@ -144,7 +160,7 @@ def main()->int:
       "next_step":f"Review {diff}, then run: python3 campaign_agent_dev.py --agent {candidate}"
     }
     manifest.write_text(json.dumps(m,indent=2)+"\n",encoding="utf-8")
-    print("Campaign Agent Candidate Repair V4.11")
+    print("Campaign Agent Candidate Repair V4.13.1")
     print("====================================")
     print(f"Source    : {source_path}")
     print(f"Source SHA: {current_hash}")

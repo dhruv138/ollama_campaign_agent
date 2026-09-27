@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Campaign Agent V4.12 validation + human-gated repair orchestration."""
+"""Campaign Agent V4.13.1 validation + strategy-gated human repair orchestration."""
 from __future__ import annotations
 import argparse, hashlib, json, subprocess, sys, time
 from datetime import datetime, timezone
@@ -136,7 +136,7 @@ def validation_main(argv=None):
        "agent":str(agent),"agent_sha256":sha(agent),"harness":str(harness),
        "harness_sha256":sha(harness),"fast_only":a.fast_only,"stages":{},"artifacts":{},
        "result":"failed"}
-    print("Campaign Agent Development Pipeline V4.12\n=========================================\nValidation engine: V4.9 frozen baseline")
+    print("Campaign Agent Development Pipeline V4.13.1\n=========================================\nValidation engine: V4.9 frozen baseline")
     print(f"Agent   : {agent.name}\nHarness : {harness.name}\nReports : {reports}\nRun     : {dev.name}")
 
     rc,o=run([sys.executable,"-m","py_compile",str(agent),str(harness)])
@@ -224,13 +224,13 @@ def repair_main(handoff_arg:str, report_root:str|None=None, yes_test:bool=False)
     repair_run.mkdir(parents=True)
 
     state={"schema_version":1,"kind":"campaign-agent-repair-orchestration",
-           "pipeline_version":"4.12","started_at":started.isoformat(),
+           "pipeline_version":"4.13.1","started_at":started.isoformat(),
            "source_handoff":str(handoff),"stages":{},"artifacts":{},
            "safety":{"trusted_agent_replacement":False,"git_commit":False,
                      "vault_writes":False,"fixture_changes":False,
                      "human_test_approval_required":True}}
 
-    print("Campaign Agent Repair Orchestrator V4.12")
+    print("Campaign Agent Repair Orchestrator V4.13.1")
     print("========================================")
     print(f"Handoff : {handoff}")
     print(f"Run     : {repair_run}")
@@ -258,7 +258,30 @@ def repair_main(handoff_arg:str, report_root:str|None=None, yes_test:bool=False)
     plan=diagnosis_dir/"repair_plan.json"
     state["artifacts"]["repair_plan"]=str(plan)
 
-    # 3) Generate a NEW candidate. V4.11 verifies the analyzed source hash.
+    # V4.13.1 strategy gate: unsupported strategies stop safely before candidate generation.
+    plan_data=_load_json(plan)
+    strategy=plan_data.get("repair_strategy") or {}
+    state["repair_strategy"]=strategy
+    if strategy.get("automatic_candidate_allowed") is not True:
+        state["result"]="review-required"
+        state["stages"]["strategy_gate"]={"status":"review-only",
+            "strategy":strategy.get("strategy"),"reason":strategy.get("reason")}
+        state["finished_at"]=datetime.now(timezone.utc).isoformat()
+        report=repair_run/"repair_orchestration.json"
+        report.write_text(json.dumps(state,indent=2)+"\n")
+        print("\nV4.13.1 Strategy Gate")
+        print("-------------------")
+        print(f"Strategy : {strategy.get('strategy') or 'unknown'}")
+        print(f"Confidence: {strategy.get('confidence') or 'unknown'}")
+        print("Candidate: NOT GENERATED")
+        print("Reason   : "+str(strategy.get("reason") or "unsupported repair strategy"))
+        print(f"Plan     : {plan}")
+        print(f"Report   : {report}")
+        print("\nREVIEW REQUIRED")
+        return 3
+    state["stages"]["strategy_gate"]={"status":"pass","strategy":strategy.get("strategy")}
+
+    # 3) Generate a NEW candidate. V4.13.1 repairer re-verifies the strategy and source hash.
     candidate_root=repair_run/"candidates"
     rc,_=_run_capture([sys.executable,str(REPAIRER),str(plan),
                        "--candidate-root",str(candidate_root)],repair_run/"repair_output.txt")
@@ -317,7 +340,7 @@ def repair_main(handoff_arg:str, report_root:str|None=None, yes_test:bool=False)
     report=repair_run/"repair_orchestration.json"
     report.write_text(json.dumps(state,indent=2)+"\n")
 
-    print("\nV4.12 Repair Summary")
+    print("\nV4.13.1 Repair Summary")
     print("--------------------")
     print(f"Candidate : {candidate}")
     print(f"Diff      : {diff}")
@@ -330,7 +353,7 @@ def repair_main(handoff_arg:str, report_root:str|None=None, yes_test:bool=False)
     return rc
 
 def main():
-    ap=argparse.ArgumentParser(description="Campaign Agent V4.12 development + repair orchestrator.")
+    ap=argparse.ArgumentParser(description="Campaign Agent V4.13.1 development + strategy-gated repair orchestrator.")
     ap.add_argument("--repair",help="Failed V4.9/V4.12 handoff.json to diagnose, analyze, repair, and optionally test.")
     ap.add_argument("--yes-test",action="store_true",
                     help="Explicitly approve testing the generated candidate (does not approve promotion).")

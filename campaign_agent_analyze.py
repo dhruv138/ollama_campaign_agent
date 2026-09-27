@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Campaign Agent V4.10 evidence-based regression analyzer.
+Campaign Agent V4.13.2 evidence-based regression analyzer with repair-strategy classification.
 
 Consumes diagnosis.json produced by campaign_agent_diagnose.py, inspects only
 the candidate agent source plus referenced evidence, and produces a repair plan.
@@ -145,6 +145,109 @@ def classify(stage: str, failures: list[dict[str, Any]]) -> str:
     return "unknown-regression"
 
 
+
+def literal_locations(agent: Path, value: str, suspected: list[str]) -> list[dict[str, Any]]:
+    """Return exact Python string-literal locations for value, annotated by enclosing function."""
+    text = agent.read_text(encoding="utf-8", errors="replace")
+    tree = ast.parse(text)
+    funcs = function_ranges(agent)
+    rows: list[dict[str, Any]] = []
+    for parent in ast.walk(tree):
+        if not isinstance(parent, ast.Return):
+            continue
+        node = parent.value
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value == value:
+            fn = containing_function(node.lineno, funcs)
+            rows.append({
+                "line": node.lineno,
+                "end_line": int(getattr(node, "end_lineno", node.lineno)),
+                "function": fn,
+                "suspected": bool(fn and fn in suspected),
+                "context": "direct-return-string-literal",
+            })
+    return rows
+
+
+def classify_repair_strategy(
+    agent: Path,
+    parsed: list[dict[str, Any]],
+    suspected_functions: list[str],
+    stage: str,
+) -> dict[str, Any]:
+    """
+    V4.13 policy classification. Only a unique exact Python string-literal replacement
+    is eligible for automatic candidate generation. Other categories are descriptive
+    and review-only until separately validated.
+    """
+    literal_candidates: list[dict[str, Any]] = []
+    for row in parsed:
+        expected, actual = norm(row.get("expected")), norm(row.get("actual"))
+        if not expected or not actual or expected == actual:
+            continue
+        locs = literal_locations(agent, actual, suspected_functions)
+        preferred = [x for x in locs if x["suspected"]]
+        pool = preferred if preferred else locs
+        if len(pool) == 1:
+            literal_candidates.append({
+                "label": norm(row.get("label")),
+                "expected": expected,
+                "actual": actual,
+                **pool[0],
+            })
+
+    if len(literal_candidates) == 1:
+        c = literal_candidates[0]
+        return {
+            "strategy": "literal-replacement",
+            "confidence": "high",
+            "automatic_candidate_allowed": True,
+            "reason": (
+                "Exactly one evidence-supported direct-return Python string literal matches the observed "
+                "regression value in the preferred source area."
+            ),
+            "target_function": c.get("function"),
+            "evidence": {
+                "failed_check": c["label"],
+                "actual": c["actual"],
+                "expected": c["expected"],
+                "source_line": c["line"],
+            },
+            "required_validation": "full-frozen-regression",
+        }
+
+    # Conservative descriptive classification for unsupported repairs.
+    source = agent.read_text(encoding="utf-8", errors="replace")
+    funcs = function_ranges(agent)
+    suspected_ranges = [(a,b,n) for a,b,n in funcs if n in set(suspected_functions)]
+    relevant = "\n".join(
+        line
+        for a,b,_ in suspected_ranges[:4]
+        for line in source.splitlines()[a-1:b]
+    )
+    if re.search(r"\b(if|elif)\b", relevant):
+        strategy = "conditional-logic"
+        reason = "Evidence points into conditional logic, but no unique safe literal replacement is proven."
+    elif re.search(r"\b(return|raise)\b", relevant) and parsed:
+        strategy = "missing-branch"
+        reason = "Evidence points into control-flow behavior, but a missing branch cannot be synthesized safely."
+    elif re.search(r"\b(filter|eligible|allow|block|gate|skip|exclude|include)\w*\b", relevant, flags=re.I):
+        strategy = "filter-or-gate"
+        reason = "Evidence points toward filtering/gating behavior without a proven mechanical repair."
+    else:
+        strategy = "unknown"
+        reason = "The captured evidence does not prove a supported mechanical repair strategy."
+
+    return {
+        "strategy": strategy,
+        "confidence": "medium" if suspected_functions else "low",
+        "automatic_candidate_allowed": False,
+        "reason": reason,
+        "target_function": suspected_functions[0] if len(suspected_functions) == 1 else None,
+        "evidence": {"failure_stage": stage, "suspected_functions": suspected_functions},
+        "required_validation": "human-review-before-candidate-generation",
+    }
+
+
 def make_plan(diag: dict[str, Any], diag_path: Path) -> dict[str, Any]:
     failures = dedupe_failures(diag.get("observed_failures") or [])
     inputs = diag.get("inputs") or {}
@@ -192,8 +295,10 @@ def make_plan(diag: dict[str, Any], diag_path: Path) -> dict[str, Any]:
         "The failed regression is recorded, but no direct literal match was found in the candidate source."
     )
 
+    repair_strategy = classify_repair_strategy(agent, parsed, functions, stage)
+
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "campaign-agent-repair-plan",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "classification": classify(stage, failures),
@@ -207,6 +312,7 @@ def make_plan(diag: dict[str, Any], diag_path: Path) -> dict[str, Any]:
         "source_evidence": src_excerpts,
         "root_cause_hypothesis": hypothesis,
         "root_cause_confidence": confidence,
+        "repair_strategy": repair_strategy,
         "proposed_change": {
             "target": "candidate-agent-only",
             "intent": (
@@ -235,6 +341,12 @@ def markdown(plan: dict[str, Any]) -> str:
         f"**Classification:** `{plan['classification']}`",
         f"**Failure stage:** `{plan['failure_stage']}`",
         f"**Root-cause confidence:** `{plan['root_cause_confidence']}`",
+        f"**Repair strategy:** `{plan['repair_strategy']['strategy']}`",
+        f"**Automatic candidate allowed:** `{plan['repair_strategy']['automatic_candidate_allowed']}`",
+        "",
+        "## Repair strategy",
+        "",
+        plan["repair_strategy"]["reason"],
         "",
         "## Failed checks",
         "",
@@ -323,11 +435,13 @@ def main() -> int:
     json_path.write_text(json.dumps(plan, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     md_path.write_text(markdown(plan), encoding="utf-8")
 
-    print("Campaign Agent Regression Analyzer V4.10")
+    print("Campaign Agent Regression Analyzer V4.13.2")
     print("========================================")
     print(f"Diagnosis : {diag_path}")
     print(f"Class     : {plan['classification']}")
     print(f"Confidence: {plan['root_cause_confidence']}")
+    print(f"Strategy  : {plan['repair_strategy']['strategy']}")
+    print(f"Auto cand.: {plan['repair_strategy']['automatic_candidate_allowed']}")
     print("Functions : " + (", ".join(plan["suspected_functions"]) or "none"))
     print(f"JSON      : {json_path}")
     print(f"Review    : {md_path}")
