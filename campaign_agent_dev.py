@@ -1,258 +1,175 @@
 #!/usr/bin/env python3
-"""
-Campaign Agent development validation orchestrator.
-
-Runs the frozen validation pipeline without modifying the campaign vault:
-  1. Python syntax validation
-  2. Deterministic regression
-  3. Full Ollama-backed regression
-  4. Combined machine-readable development report
-
-This tool does NOT run campaign_agent.py's CLI write path, approve changes,
-commit to git, or modify campaign canon.
-"""
-
+"""Campaign Agent V4.9 validation + diagnostic handoff orchestrator."""
 from __future__ import annotations
-
-import argparse
-import json
-import subprocess
-import sys
-import time
+import argparse, hashlib, json, subprocess, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+ROOT=Path(__file__).resolve().parent
+AGENT=ROOT/"campaign_agent.py"
+HARNESS=ROOT/"campaign_agent_regression.py"
+REPORTS=ROOT/"_test_runs"
+DET=(30,0,1); FULL=(41,0,0)
 
-ROOT = Path(__file__).resolve().parent
-DEFAULT_AGENT = ROOT / "campaign_agent.py"
-DEFAULT_HARNESS = ROOT / "campaign_agent_regression.py"
-DEFAULT_REPORT_ROOT = ROOT / "_test_runs"
+def sha(path:Path):
+    if not path.is_file(): return None
+    h=hashlib.sha256()
+    with path.open("rb") as f:
+        for b in iter(lambda:f.read(1048576),b""): h.update(b)
+    return h.hexdigest()
 
+def run(cmd):
+    print("\n$ "+" ".join(map(str,cmd)),flush=True)
+    q=subprocess.Popen(cmd,cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
+                       text=True,bufsize=1)
+    lines=[]
+    assert q.stdout
+    for line in q.stdout:
+        print(line,end="",flush=True); lines.append(line)
+    return q.wait(),"".join(lines)
 
-def run_command(command: list[str], cwd: Path) -> tuple[int, str]:
-    """Run a child process while streaming and capturing combined output."""
-    print("\n$ " + " ".join(command), flush=True)
-    process = subprocess.Popen(
-        command,
-        cwd=str(cwd),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
-    lines: list[str] = []
-    assert process.stdout is not None
-    for line in process.stdout:
-        print(line, end="", flush=True)
-        lines.append(line)
-    return process.wait(), "".join(lines)
+def newest(root:Path,mode:str,since:int):
+    xs=[x for x in root.glob(f"*_{mode}*/regression.json")
+        if x.stat().st_mtime_ns>=since]
+    if not xs: raise FileNotFoundError(f"No new {mode} regression.json under {root}")
+    path=max(xs,key=lambda x:x.stat().st_mtime_ns)
+    data=json.loads(path.read_text())
+    return path,data
 
+def cnt(r):
+    c=r.get("counts") or {}
+    return int(c.get("passed",0)),int(c.get("failed",0)),int(c.get("skipped",0))
 
-def newest_report(report_root: Path, mode: str, after_ns: int) -> tuple[Path, dict[str, Any]]:
-    """Find the newest regression.json for this run/mode."""
-    candidates: list[Path] = []
-    if report_root.exists():
-        for path in report_root.glob(f"*_{mode}*/regression.json"):
-            try:
-                if path.stat().st_mtime_ns >= after_ns:
-                    candidates.append(path)
-            except OSError:
-                continue
-    if not candidates:
-        raise FileNotFoundError(
-            f"No new {mode} regression.json was produced under {report_root}"
-        )
-    path = max(candidates, key=lambda p: p.stat().st_mtime_ns)
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise ValueError(f"Regression report is not a JSON object: {path}")
-    return path, data
-
-
-def counts(report: dict[str, Any]) -> tuple[int, int, int]:
-    raw = report.get("counts") or {}
-    return (
-        int(raw.get("passed", 0)),
-        int(raw.get("failed", 0)),
-        int(raw.get("skipped", 0)),
-    )
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Run the Campaign Agent development validation pipeline."
-    )
-    parser.add_argument("--agent", default=str(DEFAULT_AGENT))
-    parser.add_argument("--harness", default=str(DEFAULT_HARNESS))
-    parser.add_argument("--report-root", default=str(DEFAULT_REPORT_ROOT))
-    parser.add_argument(
-        "--fast-only",
-        action="store_true",
-        help="Run syntax + deterministic regression only; skip Ollama/full regression.",
-    )
-    args = parser.parse_args()
-
-    agent = Path(args.agent).expanduser().resolve()
-    harness = Path(args.harness).expanduser().resolve()
-    report_root = Path(args.report_root).expanduser().resolve()
-
-    started = datetime.now(timezone.utc)
-    run_stamp = started.astimezone().strftime("%Y%m%d_%H%M%S")
-    dev_dir = report_root / f"{run_stamp}_dev"
-    suffix = 1
-    while dev_dir.exists():
-        dev_dir = report_root / f"{run_stamp}_dev_{suffix}"
-        suffix += 1
-    dev_dir.mkdir(parents=True, exist_ok=False)
-
-    result: dict[str, Any] = {
-        "schema_version": 1,
-        "started_at": started.isoformat(),
-        "agent": str(agent),
-        "harness": str(harness),
-        "fast_only": bool(args.fast_only),
-        "stages": {},
-        "result": "failed",
+def stage_report(rc,actual,expected,path,report):
+    return {
+      "status":"pass" if rc==0 and actual==expected else "fail",
+      "returncode":rc,
+      "expected_counts":dict(zip(("passed","failed","skipped"),expected)),
+      "actual_counts":dict(zip(("passed","failed","skipped"),actual)),
+      "report":str(path),
+      "failures":[x for x in (report.get("failures") or []) if isinstance(x,dict)]
     }
 
-    print("Campaign Agent Development Pipeline")
-    print("===================================")
-    print(f"Agent   : {agent.name}")
-    print(f"Harness : {harness.name}")
-    print(f"Reports : {report_root}")
-    print(f"Run     : {dev_dir.name}")
-
-    # Stage 1: syntax.
-    syntax_cmd = [sys.executable, "-m", "py_compile", str(agent), str(harness)]
-    rc, output = run_command(syntax_cmd, ROOT)
-    result["stages"]["syntax"] = {
-        "status": "pass" if rc == 0 else "fail",
-        "returncode": rc,
+def make_handoff(r):
+    failures=[]
+    for name,s in r["stages"].items():
+        if s.get("status")!="pass":
+            failures.append({"stage":name,"error":s.get("error"),
+                             "expected_counts":s.get("expected_counts"),
+                             "actual_counts":s.get("actual_counts")})
+        for row in s.get("failures") or []:
+            failures.append({"stage":name,**row})
+    if r["result"]=="ready-for-review":
+        action="All validation passed. Human review is required before promotion."
+    elif r["result"]=="ready-for-review-fast-only":
+        action="Fast validation passed. Run the full pipeline before release review."
+    else:
+        action=("Diagnose only the reported failures, prepare a candidate change, "
+                "then rerun validation. Do not modify campaign canon.")
+    return {
+      "schema_version":1,"kind":"campaign-agent-development-handoff",
+      "result":r["result"],"failure_stage":r.get("failure_stage"),
+      "next_action":action,
+      "safety_boundary":{"vault_writes":False,"automatic_agent_replacement":False,
+        "automatic_patch_application":False,"automatic_git_commit":False,
+        "human_review_required":True},
+      "inputs":{"agent":r["agent"],"agent_sha256":r["agent_sha256"],
+                "harness":r["harness"],"harness_sha256":r["harness_sha256"]},
+      "stages":r["stages"],"failures":failures,"artifacts":r["artifacts"]
     }
-    if rc != 0:
-        result["failure_stage"] = "syntax"
-        (dev_dir / "syntax_output.txt").write_text(output, encoding="utf-8")
-        return finish(result, dev_dir, started)
 
-    print("PASS  Python syntax validation")
+def md(h):
+    x=["# Campaign Agent Development Handoff","",
+       f"**Result:** `{h['result']}`",
+       f"**Failure stage:** `{h.get('failure_stage') or 'none'}`","","## Validation",""]
+    for name,s in h["stages"].items():
+        x.append(f"- **{name}:** {s.get('status','unknown').upper()}")
+        if "actual_counts" in s: x.append(f"  - actual: `{json.dumps(s['actual_counts'],sort_keys=True)}`")
+        if "expected_counts" in s: x.append(f"  - expected: `{json.dumps(s['expected_counts'],sort_keys=True)}`")
+        if s.get("error"): x.append(f"  - error: `{s['error']}`")
+    x += ["","## Failures",""]
+    if h["failures"]:
+        for f in h["failures"]:
+            label=f.get("label") or f.get("stage") or "failure"
+            detail=f.get("detail") or f.get("error") or ""
+            x.append(f"- **{label}**"+(f": {detail}" if detail else ""))
+    else: x.append("- None.")
+    x += ["","## Safety boundary","",
+          "- No campaign-vault writes.","- No automatic agent replacement.",
+          "- No automatic patch application.","- No automatic git commit/tag/push.",
+          "- Human review is required before promotion.","","## Next action","",
+          h["next_action"],""]
+    return "\n".join(x)
 
-    # Stage 2: deterministic regression.
-    before = time.time_ns()
-    det_cmd = [
-        sys.executable,
-        str(harness),
-        "--agent", str(agent),
-        "--report-root", str(report_root),
-    ]
-    rc, output = run_command(det_cmd, ROOT)
-    (dev_dir / "deterministic_output.txt").write_text(output, encoding="utf-8")
-    try:
-        det_path, det_report = newest_report(report_root, "deterministic", before)
-        det_counts = counts(det_report)
-    except Exception as exc:
-        result["stages"]["deterministic"] = {
-            "status": "fail",
-            "returncode": rc,
-            "error": str(exc),
-        }
-        result["failure_stage"] = "deterministic-report"
-        return finish(result, dev_dir, started)
-
-    det_ok = rc == 0 and det_counts == (30, 0, 1)
-    result["stages"]["deterministic"] = {
-        "status": "pass" if det_ok else "fail",
-        "returncode": rc,
-        "expected_counts": {"passed": 30, "failed": 0, "skipped": 1},
-        "actual_counts": {
-            "passed": det_counts[0], "failed": det_counts[1], "skipped": det_counts[2]
-        },
-        "report": str(det_path),
-    }
-    if not det_ok:
-        result["failure_stage"] = "deterministic"
-        return finish(result, dev_dir, started)
-
-    if args.fast_only:
-        result["result"] = "ready-for-review-fast-only"
-        return finish(result, dev_dir, started)
-
-    # Stage 3: full semantic/planner regression.
-    before = time.time_ns()
-    full_cmd = [
-        sys.executable,
-        str(harness),
-        "--full",
-        "--agent", str(agent),
-        "--report-root", str(report_root),
-    ]
-    rc, output = run_command(full_cmd, ROOT)
-    (dev_dir / "full_output.txt").write_text(output, encoding="utf-8")
-    try:
-        full_path, full_report = newest_report(report_root, "full", before)
-        full_counts = counts(full_report)
-    except Exception as exc:
-        result["stages"]["full"] = {
-            "status": "fail",
-            "returncode": rc,
-            "error": str(exc),
-        }
-        result["failure_stage"] = "full-report"
-        return finish(result, dev_dir, started)
-
-    full_ok = rc == 0 and full_counts == (41, 0, 0)
-    result["stages"]["full"] = {
-        "status": "pass" if full_ok else "fail",
-        "returncode": rc,
-        "expected_counts": {"passed": 41, "failed": 0, "skipped": 0},
-        "actual_counts": {
-            "passed": full_counts[0], "failed": full_counts[1], "skipped": full_counts[2]
-        },
-        "report": str(full_path),
-        "failures": full_report.get("failures") or [],
-    }
-    if not full_ok:
-        result["failure_stage"] = "full"
-        return finish(result, dev_dir, started)
-
-    result["result"] = "ready-for-review"
-    return finish(result, dev_dir, started)
-
-
-def finish(result: dict[str, Any], dev_dir: Path, started: datetime) -> int:
-    finished = datetime.now(timezone.utc)
-    result["finished_at"] = finished.isoformat()
-    result["duration_seconds"] = round((finished - started).total_seconds(), 3)
-
-    report_path = dev_dir / "dev_report.json"
-    report_path.write_text(
-        json.dumps(result, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-
-    status = result.get("result")
-    ready = status in {"ready-for-review", "ready-for-review-fast-only"}
-
-    lines = [
-        "",
-        "Development Pipeline Summary",
-        "----------------------------",
-    ]
-    for name, stage in result.get("stages", {}).items():
-        lines.append(f"{name:<14} {str(stage.get('status', 'unknown')).upper()}")
-    lines.extend([
-        "",
-        "READY FOR REVIEW" if ready else "FAILED",
-        f"Report: {report_path}",
-    ])
-    if status == "ready-for-review-fast-only":
+def finish(r,dev,started):
+    r["finished_at"]=datetime.now(timezone.utc).isoformat()
+    r["duration_seconds"]=round((datetime.now(timezone.utc)-started).total_seconds(),3)
+    rp=dev/"dev_report.json"; hj=dev/"handoff.json"; hm=dev/"handoff.md"
+    r["artifacts"].update(dev_report=str(rp),handoff_json=str(hj),handoff_markdown=str(hm))
+    h=make_handoff(r)
+    rp.write_text(json.dumps(r,indent=2)+"\n")
+    hj.write_text(json.dumps(h,indent=2)+"\n")
+    hm.write_text(md(h))
+    ready=r["result"].startswith("ready-for-review")
+    lines=["","Development Pipeline Summary","----------------------------"]
+    lines += [f"{n:<14} {s.get('status','unknown').upper()}" for n,s in r["stages"].items()]
+    lines += ["","READY FOR REVIEW" if ready else "FAILED",
+              f"Report : {rp}",f"Handoff: {hm}",f"JSON   : {hj}"]
+    if r["result"]=="ready-for-review-fast-only":
         lines.append("Note: full Ollama regression was intentionally skipped.")
-
-    summary = "\n".join(lines) + "\n"
-    print(summary, end="")
-    (dev_dir / "summary.txt").write_text(summary, encoding="utf-8")
+    summary="\n".join(lines)+"\n"; print(summary,end="")
+    (dev/"summary.txt").write_text(summary)
     return 0 if ready else 1
 
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--agent",default=str(AGENT)); ap.add_argument("--harness",default=str(HARNESS))
+    ap.add_argument("--report-root",default=str(REPORTS)); ap.add_argument("--fast-only",action="store_true")
+    a=ap.parse_args(); agent=Path(a.agent).expanduser().resolve()
+    harness=Path(a.harness).expanduser().resolve(); reports=Path(a.report_root).expanduser().resolve()
+    started=datetime.now(timezone.utc); stamp=started.astimezone().strftime("%Y%m%d_%H%M%S")
+    dev=reports/f"{stamp}_dev"; i=1
+    while dev.exists(): dev=reports/f"{stamp}_dev_{i}"; i+=1
+    dev.mkdir(parents=True)
+    r={"schema_version":2,"pipeline_version":"4.9","started_at":started.isoformat(),
+       "agent":str(agent),"agent_sha256":sha(agent),"harness":str(harness),
+       "harness_sha256":sha(harness),"fast_only":a.fast_only,"stages":{},"artifacts":{},
+       "result":"failed"}
+    print("Campaign Agent Development Pipeline V4.9\n========================================")
+    print(f"Agent   : {agent.name}\nHarness : {harness.name}\nReports : {reports}\nRun     : {dev.name}")
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+    rc,o=run([sys.executable,"-m","py_compile",str(agent),str(harness)])
+    sl=dev/"syntax_output.txt"; sl.write_text(o); r["artifacts"]["syntax_log"]=str(sl)
+    r["stages"]["syntax"]={"status":"pass" if rc==0 else "fail","returncode":rc}
+    if rc: r["failure_stage"]="syntax"; return finish(r,dev,started)
+    print("PASS  Python syntax validation")
+
+    since=time.time_ns()
+    rc,o=run([sys.executable,str(harness),"--agent",str(agent),"--report-root",str(reports)])
+    dl=dev/"deterministic_output.txt"; dl.write_text(o); r["artifacts"]["deterministic_log"]=str(dl)
+    try:
+        path,rep=newest(reports,"deterministic",since); actual=cnt(rep)
+        r["artifacts"]["deterministic_report"]=str(path)
+        r["stages"]["deterministic"]=stage_report(rc,actual,DET,path,rep)
+    except Exception as e:
+        r["stages"]["deterministic"]={"status":"fail","returncode":rc,"error":str(e)}
+    if r["stages"]["deterministic"]["status"]!="pass":
+        r["failure_stage"]="deterministic"; return finish(r,dev,started)
+    if a.fast_only:
+        r["result"]="ready-for-review-fast-only"; return finish(r,dev,started)
+
+    since=time.time_ns()
+    rc,o=run([sys.executable,str(harness),"--full","--agent",str(agent),"--report-root",str(reports)])
+    fl=dev/"full_output.txt"; fl.write_text(o); r["artifacts"]["full_log"]=str(fl)
+    try:
+        path,rep=newest(reports,"full",since); actual=cnt(rep)
+        r["artifacts"]["full_report"]=str(path)
+        r["stages"]["full"]=stage_report(rc,actual,FULL,path,rep)
+    except Exception as e:
+        r["stages"]["full"]={"status":"fail","returncode":rc,"error":str(e)}
+    if r["stages"]["full"]["status"]!="pass":
+        r["failure_stage"]="full"; return finish(r,dev,started)
+    r["result"]="ready-for-review"; return finish(r,dev,started)
+
+if __name__=="__main__": raise SystemExit(main())
