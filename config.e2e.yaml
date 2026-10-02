@@ -1,0 +1,33 @@
+vault_path: /Users/dhruvmukul/Icemoor_Obsidian_Vault_E2E
+ollama_url: http://localhost:11434
+model: qwen3:1.7b
+temperature: 0.1
+ollama_timeout_seconds: 600
+minimum_entity_confidence: 0.6
+fuzzy_match_threshold: 0.88
+max_catalog_per_type: 500
+type_folders:
+  campaign: Campaign
+  clues: Clues_&_Mysteries
+  faction: Factions
+  item: Items
+  lore: Lore
+  npc: People
+  location: Places
+  quest: Quests
+  session: Sessions
+template_folder: _Templates
+template_files:
+  npc: NPC Template.md
+  location: Location Template.md
+  faction: Faction Template.md
+  quest: Quest Template.md
+  item: Item Template.md
+  session: Session Template.md
+create_missing_notes: true
+update_reverse_links: true
+backup_folder: _backups
+exclude_folders:
+- .obsidian
+- _backups
+- _Templates

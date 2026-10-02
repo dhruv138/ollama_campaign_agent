@@ -3037,6 +3037,80 @@ def select_new_entities(
 
     return approved
 
+def select_new_entities_from_plan(
+    change_plan: dict[str, Any],
+    create_missing: bool,
+    auto_mode: bool,
+    dry_run: bool,
+) -> set[tuple[str, str]]:
+    """
+    Return normalized (entity, type) keys approved for creation from the
+    authoritative SAFE CHANGE PLAN.
+
+    V4.16 invariant:
+      - CREATE NEW and REVIEW are the only sources of creation approval.
+      - Dry-run never prompts or approves.
+      - Auto mode approves CREATE NEW only; REVIEW always requires a human.
+      - Normal interactive mode presents every CREATE NEW and REVIEW candidate
+        exactly once.
+      - IGNORE candidates can never be approved here.
+    """
+    approved: set[tuple[str, str]] = set()
+
+    if not create_missing or dry_run:
+        return approved
+
+    candidates: list[tuple[str, dict[str, Any]]] = []
+
+    for row in change_plan.get("creates", []) or []:
+        candidates.append(("eligible", row))
+
+    for row in change_plan.get("reviews", []) or []:
+        candidates.append(("review", row))
+
+    seen: set[tuple[str, str]] = set()
+
+    for status, row in candidates:
+        name = str(row.get("entity") or row.get("mention") or "").strip()
+        etype = str(row.get("type") or "").lower().strip()
+
+        if not name or not etype:
+            continue
+
+        key = (normalize_name(name), etype)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        # Auto mode may create only candidates the planner placed in CREATE NEW.
+        # REVIEW candidates always require an explicit human decision.
+        if auto_mode:
+            if status == "eligible":
+                approved.add(key)
+            continue
+
+        label = "NEW ENTITY" if status == "eligible" else "REVIEW CANDIDATE"
+        print(f"\n{label}: {name}")
+        print(f"Type: {etype}")
+
+        reason = str(row.get("reason") or "").strip()
+        if status == "review" and reason:
+            print(f"Reason for review: {reason}")
+
+        possible_duplicates = row.get("possible_duplicates") or []
+        if possible_duplicates:
+            print("Possible existing notes:")
+            for duplicate in possible_duplicates:
+                dup_title = str(duplicate.get("title") or "").strip()
+                dup_type = str(duplicate.get("type") or "").strip()
+                if dup_title:
+                    suffix = f" [{dup_type}]" if dup_type else ""
+                    print(f"  - [[{dup_title}]]{suffix}")
+
+        if ask_yes_no(f"Create [[{name}]]?"):
+            approved.add(key)
+
+    return approved
 
 def normalize_type_folder_config(raw: Any) -> dict[str, str]:
     aliases = {
