@@ -71,9 +71,53 @@ converted into a correct physical vault state.
 -   Known forbidden/unsupported writes are absent.
 -   No material corruption or unintended unrelated changes occur.
 
-**Status:** ☐ Not started ☐ In progress ☐ Complete
+**Status:** ☐ Not started ☐ In progress ☑ Complete (2026-10-08)
 
 **Findings / notes:**
+
+Accepted run: `20261008_214712_116253` on a fresh copy of the trusted
+vault (`Icemoor_Obsidian_Vault_E2E`), agent V4.16.1. Approval policy:
+all session history; semantic updates only when `source-grounded`;
+session YAML + body wikilinks; creations judged per candidate.
+
+-   All fixture expectations hold in the physical vault: 10 expected
+    matches linked, 6 TODOs, `Missing Sanitation Workers` created via
+    REVIEW, no forbidden creates, Two Tits / Daggins' Order and Skeletal
+    Hand / Blond-Haired Youth open questions written, Furgus tattoo kept
+    RELATED-only, no Cornhusk Dolls / Temple update.
+-   Body wikilinks are alias-aware (`[[Talir Rengavi|talir]]`,
+    `[[Theo'din Corvis|Theo]]`, `[[Ester|Esther]]`).
+-   Rollback verified twice: `--rollback` restored every note
+    byte-for-byte and deleted created files.
+-   Defects found and fixed generally during M1 (V4.16 / V4.16.1):
+    1.  The SAFE CHANGE PLAN did not apply the candidate quality gate, so
+        gate-blocked candidates (e.g. a descriptive prop item) appeared
+        in CREATE NEW; once the plan became the creation source this
+        would let `--auto` create them. The plan now moves gate-blocked
+        rows to IGNORE.
+    2.  `main()` still used the pre-V4.16 creation selector, so
+        planner-only REVIEW rows (campaign-state quest promotions) were
+        displayed but never offered. Creation is now plan-driven.
+    3.  Created notes kept template placeholder wikilinks (`[[NPC Name]]`,
+        `[[Session XX]]`), creating phantom graph nodes; they are now
+        unlinked and the source session is filled in (`first_seen`,
+        Session History).
+    4.  Body-only edits re-serialized YAML in every touched note (quote
+        and indent churn). Frontmatter is now preserved byte-for-byte.
+-   Observations to carry into M2/M3 (not fixed):
+    -   qwen3:1.7b extraction is not deterministic run to run: the same
+        session proposed `The Temple of the Raven Queen`, `The Shrine of
+        the Raven Queen`, or nothing; `The Black Feathers` and
+        `Wellview Helm` appeared only in some runs. The rubric should
+        score a single recorded run, and M3 may want 2--3 runs.
+    -   Near-duplicate semantic proposals can share identical evidence
+        (two Deanira sailor/map clues).
+    -   Several quality-gate and canonicalization rules are literal
+        Session 37 strings (`phallic pin`, `goliath sailor`,
+        `missing sanitation workers`). They are the most likely M3
+        generalization gaps.
+    -   Created notes are structurally clean but have no content beyond
+        the template; populating them stays a human/approved step.
 
 ------------------------------------------------------------------------
 
@@ -333,7 +377,7 @@ demonstrated.
 
 Session 37 successfully passes disposable-vault ingestion and audit.
 
-**Status:** ☐
+**Status:** ☑ (2026-10-08, run `20261008_214712_116253`)
 
 ## Gate B --- First Generalization Measurement
 
@@ -383,15 +427,25 @@ real Session 37 ingestion.
 Use this section when pausing development so the next work session can
 resume quickly.
 
-**Current milestone:** M1 --- Session 37 End-to-End Acceptance\
-**Current Campaign Agent version:**
-\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\
+**Current milestone:** M2 --- Formalize the Ingestion Accuracy Rubric
+(M1 complete)\
+**Current Campaign Agent version:** V4.16.1 (plan-driven, quality-gated
+creation; frontmatter-preserving writes; placeholder-free created notes)\
 **Current development orchestrator:** V4.15.1\
-**Known frozen baselines:** 30/0/1 deterministic; 41/0/0 full; 39/0
-pipeline\
-**Last completed action:** V4.15.1 development pipeline passed
-end-to-end.\
-**Next action:** Create disposable vault copy and run Session 37
-ingestion acceptance test.
+**Known frozen baselines:** 44/0/1 deterministic; 55/0/0 full; pipeline
+PASS\
+**Last completed action:** M1 Session 37 E2E acceptance passed on a
+disposable vault (run `20261008_214712_116253`).\
+**Next action:** Decide whether to perform the real Session 37
+ingestion into the trusted vault; draft the M2 scoring worksheet; add
+Session 38 notes to the vault for the M3 blind test.
 
 **Additional notes:**
+
+-   E2E vault: `/Users/dhruvmukul/Icemoor_Obsidian_Vault_E2E` (fresh copy
+    made 2026-10-08; the older copy is kept as
+    `Icemoor_Obsidian_Vault_E2E_old_20260927`). Re-copy the trusted vault
+    before each new acceptance run.
+-   Moving Ollama to another machine: set `ollama_url` (and `model`, if
+    larger) in both configs. Treat the first `--full` run on a new model
+    as a new baseline, since extraction results are model-dependent.

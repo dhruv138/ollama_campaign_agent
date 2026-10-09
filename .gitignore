@@ -3,3 +3,4 @@
 _test_runs/
 __pycache__/
 *.pyc
+.claude/settings.local.json

@@ -565,6 +565,46 @@ def run() -> int:
             f"by_index={none_approved!r}, planner_only={none_planner!r}",
         )
 
+    # V4.16.1: body-only note edits keep frontmatter byte-for-byte.
+    original_note = (
+        '---\ntitle: "Synthetic Place"\ntags:\n  - place\n  - dnd\n---\n'
+        "# Synthetic Place\n\nExisting body.\n"
+    )
+    new_note = agent.replace_body_preserving_frontmatter(
+        original_note, "# Synthetic Place\n\nExisting body.\n\n## Session History\n\n- [[Session_99]]\n",
+    )
+    suite.check(
+        new_note.startswith('---\ntitle: "Synthetic Place"\ntags:\n  - place\n  - dnd\n---\n')
+        and new_note.endswith("- [[Session_99]]\n"),
+        "Body-only edit preserves original frontmatter verbatim",
+        repr(new_note[:120]),
+    )
+
+    # V4.16.1: newly created notes carry no template placeholder wikilinks.
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        template = Path(tmp) / "NPC Template.md"
+        template.write_text(
+            "---\ntype: npc\nname:\nfirst_seen: null\ntags:\n- npc\n---\n\n"
+            "# {{title}}\n\n## Relationships\n\n- Relationship with [[NPC, Faction, or Location]]\n"
+            "- [[NPC Name|someone]]\n\n## Session History\n\n### [[Session XX]]\n",
+            encoding="utf-8",
+        )
+        rendered = agent.render_template(template, "Synthetic NPC", "npc", "Session_99")
+    rendered_fm, rendered_body = agent.split_frontmatter(rendered)
+    suite.check(
+        "[[NPC, Faction, or Location]]" not in rendered_body
+        and "[[NPC Name" not in rendered_body
+        and "[[Session XX]]" not in rendered_body,
+        "Created note has no template placeholder wikilinks",
+        repr(rendered_body),
+    )
+    suite.check(
+        "### [[Session_99]]" in rendered_body and rendered_fm.get("first_seen") == "[[Session_99]]",
+        "Created note links its source session (history + first_seen)",
+        f"first_seen={rendered_fm.get('first_seen')!r}",
+    )
+
     # 7. Safety invariant: this harness never invokes the CLI/write path.
     if (fixture.get("safety") or {}).get("dry_run_must_not_write"):
         suite.check(

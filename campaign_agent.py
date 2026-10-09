@@ -124,6 +124,19 @@ def split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
     return fm, text[match.end():]
 
 
+def replace_body_preserving_frontmatter(text: str, new_body: str) -> str:
+    """
+    Swap a note's body while keeping its frontmatter block byte-for-byte.
+
+    Body-only edits (Session History, semantic sections) must not re-serialize
+    YAML, which would churn quoting/indentation in unrelated metadata.
+    """
+    match = re.match(r"^---\s*\n(.*?)\n---\s*\n?", text, flags=re.S) if text.startswith("---") else None
+    if not match:
+        return new_body
+    return text[:match.end()] + new_body
+
+
 def dump_markdown(frontmatter: dict[str, Any], body: str) -> str:
     yaml_text = yaml.safe_dump(
         frontmatter,
@@ -1822,9 +1835,34 @@ def render_template(
     if not fm.get("name"):
         fm["name"] = title
 
+    session_link = f"[[{source_title}]]" if source_title else ""
+    if session_link and "first_seen" in fm and not fm.get("first_seen"):
+        fm["first_seen"] = session_link
+    if session_link and session_link not in body:
+        body = body.replace("[[Session XX]]", session_link)
+    body = unlink_template_placeholders(body, keep={title, source_title})
+
     # V4.6.3: session provenance belongs in Session History, not YAML related:.
     # `related:` is reserved for actual entity relationships.
     return dump_markdown(fm, body)
+
+
+def unlink_template_placeholders(body: str, keep: set[str]) -> str:
+    """
+    A freshly rendered template has no real relationships yet, so any wikilink
+    other than the note itself or its source session is a template placeholder
+    (e.g. [[NPC Name]]). Leave the text but drop the brackets so placeholders
+    never become phantom nodes in the Obsidian graph.
+    """
+    keep_norm = {normalize_name(k) for k in keep if k}
+
+    def repl(m: re.Match[str]) -> str:
+        target = m.group(1)
+        if normalize_name(target) in keep_norm:
+            return m.group(0)
+        return (m.group(2) or target)
+
+    return re.sub(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]", repl, body)
 
 
 def safe_filename(title: str) -> str:
@@ -3016,7 +3054,7 @@ def apply_planner_note_writes(
             continue
 
         text = path.read_text(encoding="utf-8")
-        fm, body = split_frontmatter(text)
+        _, body = split_frontmatter(text)
         original_body = body
         row = by_path.get(rel, {})
 
@@ -3044,7 +3082,7 @@ def apply_planner_note_writes(
 
         if body != original_body:
             backup_file(path, vault_root, backup_dir)
-            path.write_text(dump_markdown(fm, body), encoding="utf-8")
+            path.write_text(replace_body_preserving_frontmatter(text, body), encoding="utf-8")
             changed.append(path)
 
     return changed

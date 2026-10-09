@@ -2,8 +2,9 @@
 
 Ingests D&D session notes into the Icemoor Obsidian vault using a local Ollama
 model. Read `docs/ARCHITECTURE.md` (design + safety model) and
-`docs/CAMPAIGN_AGENT_INGESTION_MILESTONES.md` (roadmap; current milestone is M1)
-before making non-trivial changes.
+`docs/CAMPAIGN_AGENT_INGESTION_MILESTONES.md` (roadmap; M1 is complete, current
+milestone is M2; see its "Continuation Notes" for where work left off) before
+making non-trivial changes.
 
 ## Environment
 
