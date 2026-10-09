@@ -374,6 +374,28 @@ def build_alias_index(notes: list[VaultNote]) -> dict[str, list[VaultNote]]:
 
 
 def ollama_chat(base_url: str, model: str, prompt: str, temperature: float, timeout: int) -> str:
+    """
+    Call Ollama. When CAMPAIGN_AGENT_LLM_CACHE names a directory (testing and
+    scoring only), responses are replayed from / saved to that directory keyed
+    by model + temperature + prompt, so deterministic logic changes can be
+    re-measured without re-running the model. Unset in normal use.
+    """
+    import os
+    cache_dir = os.environ.get("CAMPAIGN_AGENT_LLM_CACHE")
+    cache_file = None
+    if cache_dir:
+        key = hashlib.sha256(f"{model}\n{temperature}\n{prompt}".encode("utf-8")).hexdigest()
+        cache_file = Path(cache_dir) / f"{key}.txt"
+        if cache_file.exists():
+            return cache_file.read_text(encoding="utf-8")
+    content = _ollama_chat_uncached(base_url, model, prompt, temperature, timeout)
+    if cache_file is not None:
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        cache_file.write_text(content, encoding="utf-8")
+    return content
+
+
+def _ollama_chat_uncached(base_url: str, model: str, prompt: str, temperature: float, timeout: int) -> str:
     endpoint = base_url.rstrip("/") + "/api/chat"
     payload = {
         "model": model,
@@ -632,6 +654,17 @@ def extract_yaml_entities(target: VaultNote, alias_index: dict[str, list[VaultNo
     return rows
 
 
+# Head words never resolved alone: roles, plus common building types that a
+# town has many of (one "temple" note does not make "the Temple" refer to it).
+_PERSON_HEAD_WORDS = {
+    "queen", "king", "prince", "princess", "lord", "lady", "captain", "master",
+    "doctor", "guard", "priest", "cleric", "matron", "father", "mother",
+    "temple", "shrine", "church", "inn", "tavern", "shop", "market", "tower",
+    "gate", "bridge", "docks", "square", "crypt", "graveyard", "cemetery",
+    "mausoleum", "hall", "keep", "castle", "house", "manor", "forest", "river",
+}
+
+
 def fold_accents_same_length(text: str) -> str:
     """
     Strip diacritics character-by-character while keeping string length, so
@@ -708,6 +741,40 @@ def extract_prose_existing_entities(
                     "note": note,
                     "type": etype,
                 })
+
+    # Unique head-word references (V4.21): "the Academy" -> [[Mistra's Academy]]
+    # and "the Library" -> [[Library of Deneir]] when exactly one entity note
+    # has that head word and no note is titled with the bare word. The head is
+    # the word before " of " if present, else the last word.
+    heads: dict[str, list[VaultNote]] = {}
+    bare_titles = {normalize_name(n.title) for n in existing_notes}
+    for note in existing_notes:
+        if str(note.note_type or "").lower().strip() not in ENTITY_TYPES:
+            continue
+        words = normalize_name(note.title).split()
+        if len(words) < 2:
+            continue
+        head = words[words.index("of") - 1] if "of" in words[1:] else words[-1]
+        heads.setdefault(head, []).append(note)
+    for head, notes in heads.items():
+        if len(notes) != 1 or len(head) < 4 or head in bare_titles or head in _PERSON_HEAD_WORDS:
+            continue
+        pat = r"(?<![\w])the\s+" + re.escape(head) + r"(?![\w])"
+        for match in re.finditer(pat, folded_body, re.I):
+            word_start = match.end() - len(head)
+            if not body[word_start:word_start + 1].isupper():
+                continue  # require a capitalized reference ("the Academy")
+            if re.match(r"\s+of\s+[A-Z]", body[match.end():match.end() + 40]):
+                continue  # part of a longer name ("the Temple of Mistra")
+            note = notes[0]
+            candidates.append({
+                "start": word_start,
+                "end": match.end(),
+                "length": match.end() - word_start,
+                "mention": body[word_start:match.end()],
+                "note": note,
+                "type": str(note.note_type or "").lower().strip(),
+            })
 
     # Longest spans win. Any shorter span overlapping an accepted longer phrase
     # is suppressed (e.g. Queen inside Raven Queen).
@@ -1065,9 +1132,82 @@ def extract_explicit_questions(body: str) -> list[dict[str, Any]]:
     return rows
 
 
+_NAME = r"[A-Z][a-z'’\-]+(?:\s+[A-Z][a-z'’\-]+){0,2}"
+_NOT_NAMES = {"The", "A", "An", "He", "She", "They", "We", "It", "His", "Her", "Their",
+              "This", "That", "There", "Then", "When", "After", "Before", "Later"}
+# Role titles stay part of the name ("Archivist Siobhan"); honorifics are dropped
+# so "Brother Daggins" resolves to the existing Daggins note.
+_ROLE_TITLES = r"Archivist|Captain|Professor|Headmaster|Headmistress|Doctor|Commander|Sergeant|Magistrate"
+_HONORIFICS = r"Brother|Sister|Father|Mother|Sir|Dame|Lord|Lady|Master|Mistress"
+_PERSON_PATTERNS = [
+    re.compile(rf"\b(?:named|called)\s+({_NAME})"),
+    re.compile(rf"\bintroduces\s+(?:himself|herself|themselves|themself)\s+as\s+({_NAME})"),
+    re.compile(rf"\bgave\s+(?:his|her|their)\s+name\s+(?:as\s+)?({_NAME})"),
+    re.compile(rf"\b((?:{_ROLE_TITLES})\s+{_NAME})"),
+    re.compile(rf"\b(?:{_HONORIFICS})\s+({_NAME})"),
+    re.compile(
+        rf"\b({_NAME}),\s+(?:the|a|an)\s+(?:former\s+|young\s+|old\s+)?"
+        r"(?:bartender|innkeeper|owner|worker|priest|priestess|guard|archivist|merchant|"
+        r"student|assistant|apprentice|healer|cleric|wizard|son|daughter|wife|husband|"
+        r"brother|sister|captain|sailor|smith|blacksmith|scholar|librarian|servant)\b"
+    ),
+]
+_PLACE_NOUNS = (
+    r"Temple|Shrine|Clinic|Hospital|Inn|Tavern|Library|Academy|Tower|Guild|Market|"
+    r"Mausoleum|Crypt|Keep|Castle|Hall|Halls|District|Square|Harbou?r|Docks|Bridge|Gate|"
+    r"Manor|Estate|Church|Cathedral|Monastery|Abbey|School|University|College|Shop|"
+    r"Emporium|Brothel|Graveyard|Cemetery"
+)
+_PLACE_PATTERNS = [
+    re.compile(rf"\b((?:[A-Z][\w'’]+\s+){{1,3}}(?:{_PLACE_NOUNS}))\b"),
+    re.compile(rf"\b((?:{_PLACE_NOUNS})\s+of\s+(?:the\s+)?[A-Z][\w'’]+(?:\s+[A-Z][\w'’]+)?)\b"),
+]
+
+
+def named_entities_from_source(body: str) -> list[dict[str, Any]]:
+    """
+    Session-agnostic named-entity candidates read directly from the source:
+    people introduced by naming patterns ("a staff member named Karyn",
+    "introduces herself as Atheela", "Archivist Siobhan", "Zelda, a former
+    worker") and capitalized place names with a place noun ("Temple of
+    Mistra", "Student Health Clinic"). These are candidates only: they go
+    through the same resolution, quality gate and human approval as model
+    output, and existing notes resolve them instead of duplicating.
+    """
+    text = re.sub(r"\s+", " ", body)
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add(name: str, etype: str, reason: str) -> None:
+        name = re.sub(r"[’']s$", "", name.strip())
+        words = name.split()
+        if not words or words[0] in _NOT_NAMES:
+            if len(words) > 1 and words[0] == "The" and etype == "location":
+                name = " ".join(words[1:])
+            else:
+                return
+        key = (normalize_name(name), etype)
+        if len(key[0]) < 3 or key in seen:
+            return
+        seen.add(key)
+        rows.append({
+            "mention": name, "name": name, "type": etype,
+            "significance": "meaningful", "reason": reason,
+            "from_source_pattern": True,
+        })
+
+    for pattern in _PERSON_PATTERNS:
+        for m in pattern.finditer(text):
+            add(m.group(1), "npc", "person named in the source by a naming pattern")
+    for pattern in _PLACE_PATTERNS:
+        for m in pattern.finditer(text):
+            add(m.group(1), "location", "capitalized place name in the source")
+    return rows
+
+
 def entities_from_raw_evidence(body: str) -> list[dict[str, Any]]:
     """Conservative entity candidates derived directly from session text."""
-    rows = []
+    rows = named_entities_from_source(body)
     if re.search(r"\bblond youth\b|\byoung man with blond(?:e)? hair\b|\bblond(?:e)?[- ]haired youth\b", body, re.I):
         recurring = bool(re.search(r"Amberhold", body, re.I) and re.search(r"Skeletal Hand", body, re.I))
         rows.append({

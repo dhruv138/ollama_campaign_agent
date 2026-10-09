@@ -777,6 +777,34 @@ def run() -> int:
         "",
     )
 
+    # V4.21: deterministic named-entity candidates and unique head-word
+    # resolution, both session-agnostic.
+    named = {(r["name"], r["type"]) for r in agent.named_entities_from_source(
+        "We meet a smith named Hollis Vane. She introduces herself as Mirela. "
+        "Captain Orsk waves. Brother Tamsin prays. Later we visit the Temple of Ashes "
+        "and the Lower Harbor Market. The weather was Fine."
+    )}
+    suite.check(
+        {("Hollis Vane", "npc"), ("Mirela", "npc"), ("Captain Orsk", "npc"), ("Tamsin", "npc"),
+         ("Temple of Ashes", "location"), ("Lower Harbor Market", "location")} <= named
+        and not any(n == "Fine" for n, _ in named),
+        "Naming patterns yield people and places (honorifics dropped, role titles kept)",
+        repr(sorted(named)),
+    )
+    academy = _syn_note("Grey Spire Academy", "faction")
+    shrine = _syn_note("Shrine of Ashes", "location")
+    head_rows = agent.extract_prose_existing_entities(
+        "Marta Vell studies at the Academy, then prays in the Shrine and visits the Shrine of Ashes.",
+        [academy, shrine, marta],
+    )
+    head_pairs = {(r["mention"], r["name"]) for r in head_rows}
+    suite.check(
+        ("Academy", "Grey Spire Academy") in head_pairs
+        and ("Shrine", "Shrine of Ashes") not in head_pairs,
+        "Unique institution head word resolves; common building words do not",
+        repr(sorted(head_pairs)),
+    )
+
     # V4.16.1: body-only note edits keep frontmatter byte-for-byte.
     original_note = (
         '---\ntitle: "Synthetic Place"\ntags:\n  - place\n  - dnd\n---\n'
