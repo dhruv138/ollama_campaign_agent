@@ -2572,6 +2572,7 @@ def build_change_plan(
                     }
                     for section, row in related_rows
                 ]
+                relationships = v418_relationship_proposals(note, proposals, existing_notes)
                 plan["updates"].append({
                     "entity": note.title,
                     "type": str(note.note_type or entity.get("type") or ""),
@@ -2585,6 +2586,7 @@ def build_change_plan(
                     },
                     "proposals": proposals,
                     "related": related,
+                    "relationships": relationships,
                     "write_enabled": False,
                 })
 
@@ -2670,6 +2672,110 @@ def v416_gate_plan_candidates(plan: dict[str, Any]) -> None:
                 blocked["reason"] = reason
                 ignores.append(blocked)
         plan[bucket] = kept
+
+
+def _related_targets(frontmatter: dict[str, Any]) -> set[str]:
+    values = frontmatter.get("related") if isinstance(frontmatter, dict) else None
+    if isinstance(values, str):
+        values = [values]
+    return {normalize_name(str(v)) for v in (values or []) if str(v).strip()}
+
+
+def v418_relationship_proposals(
+    note: VaultNote,
+    proposals: list[dict[str, Any]],
+    existing_notes: list[VaultNote],
+) -> list[dict[str, Any]]:
+    """
+    Propose `related:` links for a note from its source-grounded proposals.
+
+    A link to another existing entity note is proposed only when that entity is
+    named in the verbatim source evidence supporting a SUBJECT proposal for this
+    note, so every relationship is grounded in the session text. Links the note
+    already has are skipped. Also records, per proposal, the entity mentions to
+    wikilink inside the written entry. Nothing is written without approval.
+    """
+    by_title = {n.title: n for n in existing_notes}
+    already = _related_targets(note.frontmatter) | {normalize_name(note.title)}
+    relationships: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for proposal in proposals:
+        evidence = " ".join(str(x) for x in proposal.get("evidence") or [])
+        if not evidence.strip():
+            continue
+        mentions = extract_prose_existing_entities(evidence, existing_notes)
+        proposal["entry_links"] = [
+            (m["mention"], m["name"]) for m in mentions
+            if normalize_name(m["name"]) != normalize_name(note.title)
+        ]
+        if proposal.get("classification") != "source-grounded":
+            continue
+        for m in mentions:
+            target = by_title.get(m["name"])
+            key = normalize_name(m["name"])
+            if target is None or key in already or key in seen:
+                continue
+            if str(target.note_type or "").lower() not in ENTITY_TYPES:
+                continue
+            seen.add(key)
+            relationships.append({
+                "action": "ADD RELATED",
+                "target": m["name"],
+                "via": proposal.get("title") or "",
+                "evidence": proposal.get("evidence", [])[:1],
+            })
+    return relationships
+
+
+def add_related_link_preserving(text: str, target: str) -> str:
+    """
+    Add [[target]] to a note's `related:` frontmatter list with minimal churn:
+    existing YAML lines are kept verbatim and only the new item is inserted.
+    """
+    link = f'"[[{target}]]"'
+    match = re.match(r"^---\s*\n(.*?)\n---\s*\n?", text, flags=re.S) if text.startswith("---") else None
+    if not match:
+        return f"---\nrelated:\n  - {link}\n---\n\n{text}"
+    fm, _ = split_frontmatter(text)
+    if normalize_name(target) in _related_targets(fm):
+        return text
+
+    raw = match.group(1).split("\n")
+    out: list[str] = []
+    i = 0
+    inserted = False
+    while i < len(raw):
+        line = raw[i]
+        key = re.match(r"^related:\s*(.*)$", line)
+        if key and not inserted:
+            rest = key.group(1).strip()
+            if rest in ("", "[]", "null", "~"):
+                out.append("related:")
+                i += 1
+                items: list[str] = []
+                while i < len(raw) and (raw[i].startswith((" ", "\t", "-")) or not raw[i].strip()):
+                    items.append(raw[i])
+                    i += 1
+                while items and not items[-1].strip():
+                    items.pop()
+                indent = re.match(r"^(\s*)-", items[0]).group(1) if items and re.match(r"^\s*-", items[0]) else "  "
+                out.extend(items)
+                out.append(f"{indent}- {link}")
+                inserted = True
+                continue
+            # Flow-style list ("related: [a, b]"): rewrite just this key.
+            values = [v for v in (fm.get("related") or []) if str(v).strip()]
+            out.append("related:")
+            out.extend(f'  - "{v}"' if not str(v).startswith('"') else f"  - {v}" for v in values)
+            out.append(f"  - {link}")
+            inserted = True
+            i += 1
+            continue
+        out.append(line)
+        i += 1
+    if not inserted:
+        out.extend(["related:", f"  - {link}"])
+    return "---\n" + "\n".join(out) + "\n---\n" + text[match.end():]
 
 
 def v416_plan_creation_targets(
@@ -2761,6 +2867,9 @@ def print_change_plan(plan: dict[str, Any]) -> None:
                 print(f"         {_planner_short(proposal['detail'], 180)}")
             for source in proposal.get("evidence") or []:
                 print(f"         SOURCE: {source}")
+        for rel in row.get("relationships") or []:
+            print(f"       • ADD RELATED: [[{rel.get('target')}]] "
+                  f"[source-grounded; named in the source for: {rel.get('via')}]")
         related = row.get("related") or []
         if related:
             print("       RELATED CONTEXT (not an UPDATE):")
@@ -3039,9 +3148,17 @@ def _semantic_entry(proposal: dict[str, Any], session_link: str) -> str:
     if classification != "source-grounded" and detail:
         lines.append(f"  - Interpretation: {_planner_short(detail, 420)}")
 
+    links = [tuple(x) for x in proposal.get("entry_links") or [] if len(x) == 2]
+
+    def linked(text: str) -> str:
+        # Wikilink other known entities named in this entry (V4.18).
+        return replace_mentions_with_links(text, links)[0] if links else text
+
+    if links:
+        lines[0] = f"- **{linked(title)}**"
     for source in evidence:
         clean = " ".join(source.split())
-        lines.append(f"  - Evidence: {_planner_short(clean, 420)}")
+        lines.append(f"  - Evidence: {linked(_planner_short(clean, 420))}")
     return "\n".join(lines)
 
 
@@ -3061,6 +3178,7 @@ def collect_write_approvals(
     approved = {
         "session_history_paths": set(),
         "semantic": [],  # (path, proposal)
+        "relationships": [],  # (path, relationship)
         "session_metadata": False,
         # Session-body mutation is a separate controlled operation.
         # It is never auto-approved and defaults NO in normal mode.
@@ -3101,6 +3219,17 @@ def collect_write_approvals(
             if ask_yes_no("Apply this semantic update?", default=False):
                 approved["semantic"].append((path, dict(proposal)))
 
+        for rel in row.get("relationships", []) or []:
+            if auto_mode:
+                # Relationship links are semantic and never auto-approved.
+                continue
+            print(f"\nRELATIONSHIP: [[{entity}]] -> [[{rel.get('target')}]]")
+            print(f"  ADD RELATED (frontmatter related:), named in the source for: {rel.get('via')}")
+            for source in rel.get("evidence") or []:
+                print(f"  SOURCE: {_planner_short(source, 300)}")
+            if ask_yes_no("Apply this relationship link?", default=False):
+                approved["relationships"].append((path, dict(rel)))
+
     if not auto_mode:
         metadata = plan.get("session_metadata") or {}
         has_metadata = any((metadata.get("add") or {}).values())
@@ -3137,8 +3266,15 @@ def apply_planner_note_writes(
     semantic_by_path: dict[str, list[dict[str, Any]]] = {}
     for path, proposal in approvals.get("semantic", []) or []:
         semantic_by_path.setdefault(str(path), []).append(proposal)
+    related_by_path: dict[str, list[dict[str, Any]]] = {}
+    for path, rel in approvals.get("relationships", []) or []:
+        related_by_path.setdefault(str(path), []).append(rel)
 
-    paths = set(approvals.get("session_history_paths", set())) | set(semantic_by_path)
+    paths = (
+        set(approvals.get("session_history_paths", set()))
+        | set(semantic_by_path)
+        | set(related_by_path)
+    )
     changed: list[Path] = []
     session_link_default = None
 
@@ -3175,9 +3311,13 @@ def apply_planner_note_writes(
             entry = _semantic_entry(proposal, session_link)
             body, _ = _append_under_heading(body, heading, entry)
 
-        if body != original_body:
+        new_text = replace_body_preserving_frontmatter(text, body) if body != original_body else text
+        for relationship in related_by_path.get(rel, []):
+            new_text = add_related_link_preserving(new_text, str(relationship.get("target") or ""))
+
+        if new_text != text:
             backup_file(path, vault_root, backup_dir)
-            path.write_text(replace_body_preserving_frontmatter(text, body), encoding="utf-8")
+            path.write_text(new_text, encoding="utf-8")
             changed.append(path)
 
     return changed
@@ -3685,7 +3825,7 @@ def _main_impl() -> int:
     # V4.6.3: do not create empty transactions.
     # A transaction represents actual vault mutation, not merely a completed
     # approval session.
-    approved_semantic = bool(planner_approvals.get("semantic"))
+    approved_semantic = bool(planner_approvals.get("semantic")) or bool(planner_approvals.get("relationships"))
     approved_history = bool(planner_approvals.get("session_history_paths"))
     approved_metadata = bool(planner_approvals.get("session_metadata"))
     approved_wikilinks = bool(planner_approvals.get("session_wikilinks"))

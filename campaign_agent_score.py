@@ -254,9 +254,9 @@ def score(agent, expected: dict[str, Any], plan: dict[str, Any]) -> dict[str, An
         for t in expected["session_links"]
     ]
 
-    # 5. Relationships: links added to entity notes in the golden delta. The
-    #    agent does not propose typed relationships yet, so this is reported as
-    #    the share of endpoints the agent surfaces at all (an upper bound).
+    # 5. Relationships: links added to entity notes in the golden delta, versus
+    #    links the agent proposes (frontmatter related: proposals and wikilinks
+    #    inside proposed entries). A golden link counts in either direction.
     surfaced = updated_any + proposed_new
     rel_pairs = [
         (e["title"], link)
@@ -266,6 +266,28 @@ def score(agent, expected: dict[str, Any], plan: dict[str, Any]) -> dict[str, An
     rel_surfaced = sum(
         1 for a, b in rel_pairs
         if best(match, a, surfaced)[0] > 0 and best(match, b, surfaced + list(expected["touched"]))[0] > 0
+    )
+    agent_pairs = set()
+    for u in updates:
+        src = str(u.get("entity") or "")
+        for r in u.get("relationships") or []:
+            agent_pairs.add((src, str(r.get("target") or "")))
+        for p in u.get("proposals") or []:
+            for link in p.get("entry_links") or []:
+                agent_pairs.add((src, str(link[1])))
+
+    def pair_hit(a: str, b: str) -> bool:
+        return any(
+            (match(a, x) >= 1 and match(b, y) >= 1) or (match(a, y) >= 1 and match(b, x) >= 1)
+            for x, y in agent_pairs
+        )
+
+    golden_unique = sorted({tuple(sorted((a, b))) for a, b in rel_pairs})
+    rel_hits = sum(1 for a, b in golden_unique if pair_hit(a, b))
+    agent_correct = sum(
+        1 for x, y in agent_pairs
+        if any((match(x, a) >= 1 and match(y, b) >= 1) or (match(x, b) >= 1 and match(y, a) >= 1)
+               for a, b in golden_unique)
     )
 
     # 6. Fact recall (approximate): a golden fact counts as covered when some
@@ -294,7 +316,9 @@ def score(agent, expected: dict[str, Any], plan: dict[str, Any]) -> dict[str, An
             "placement_pct": pct(sum(p["ok"] for p in placements), len(placements)),
             "session_link_recall_pct": pct(sum(r["score"] for r in link_rows), len(link_rows)),
             "relationship_endpoints_surfaced_pct": pct(rel_surfaced, len(rel_pairs)),
-            "typed_relationships_proposed": 0,
+            "relationship_recall_pct": pct(rel_hits, len(golden_unique)),
+            "relationship_precision_pct": pct(agent_correct, len(agent_pairs)),
+            "relationships_proposed": len(agent_pairs),
             "unsupported_new_entity_pct": pct(len(unsupported), len(proposed_new)),
         },
         "detail": {
@@ -306,6 +330,8 @@ def score(agent, expected: dict[str, Any], plan: dict[str, Any]) -> dict[str, An
             "facts_total": len(facts),
             "facts_covered": covered,
             "relationship_pairs": len(rel_pairs),
+            "relationship_pairs_unique": len(golden_unique),
+            "agent_relationship_pairs": sorted(agent_pairs),
         },
     }
 
@@ -320,7 +346,9 @@ def render(result: dict[str, Any], args) -> str:
         f"Fact recall (approx)       : {m['fact_recall_approx_pct']}%   (target >= 85; {d['facts_covered']}/{d['facts_total']})",
         f"Placement                  : {m['placement_pct']}%   (target >= 90)",
         f"Session link recall        : {m['session_link_recall_pct']}%",
-        f"Relationship endpoints     : {m['relationship_endpoints_surfaced_pct']}%   ({d['relationship_pairs']} golden links; agent proposes 0 typed relationships)",
+        f"Relationship recall        : {m['relationship_recall_pct']}%   (target >= 85; {d['relationship_pairs_unique']} golden links)",
+        f"Relationship precision     : {m['relationship_precision_pct']}%   ({m['relationships_proposed']} proposed)",
+        f"Relationship endpoints     : {m['relationship_endpoints_surfaced_pct']}%   (upper bound: both ends surfaced)",
         f"Unsupported new entities   : {m['unsupported_new_entity_pct']}%   (target <= 5)",
         "",
         "Expected new notes:",

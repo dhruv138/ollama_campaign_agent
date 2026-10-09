@@ -643,6 +643,63 @@ def run() -> int:
         repr(wrapped),
     )
 
+    # V4.18: grounded relationship proposals, minimal-churn related: writes,
+    # inline entry links, and no auto-approval of relationships.
+    def _syn_note(title, etype, fm=None):
+        return agent.VaultNote(
+            path=Path(f"Syn/{title}.md"), rel_path=f"Syn/{title}.md", title=title,
+            note_type=etype, aliases=[], frontmatter=fm or {}, body="",
+        )
+    inn = _syn_note("Copper Lantern", "location", {"related": ["[[Old Friend]]"]})
+    marta = _syn_note("Marta Vell", "npc")
+    friend = _syn_note("Old Friend", "npc")
+    rel_props = [
+        {"title": "Smugglers under the Copper Lantern", "classification": "source-grounded",
+         "evidence": ["Marta Vell says smugglers use the Copper Lantern cellar, as Old Friend warned."]},
+        {"title": "Unverified rumor", "classification": "model-interpretation-needs-review",
+         "evidence": ["Someone mentions Marta Vell in passing."]},
+    ]
+    rels = agent.v418_relationship_proposals(inn, rel_props, [inn, marta, friend])
+    suite.check(
+        [r["target"] for r in rels] == ["Marta Vell"],
+        "Relationships come only from source-grounded evidence, skipping self and existing links",
+        repr(rels),
+    )
+    suite.check(
+        ("Marta Vell", "Marta Vell") in [tuple(x) for x in rel_props[0].get("entry_links", [])],
+        "Entry links record other entities named in the evidence",
+        repr(rel_props[0].get("entry_links")),
+    )
+    before_rel = '---\ntitle: "Copper Lantern"\nrelated:\n  - "[[Old Friend]]"\ntags:\n  - place\n---\n# Copper Lantern\n'
+    after_rel = agent.add_related_link_preserving(before_rel, "Marta Vell")
+    suite.check(
+        after_rel == '---\ntitle: "Copper Lantern"\nrelated:\n  - "[[Old Friend]]"\n  - "[[Marta Vell]]"\ntags:\n  - place\n---\n# Copper Lantern\n'
+        and agent.add_related_link_preserving(after_rel, "Marta Vell") == after_rel,
+        "related: link is inserted with minimal churn and never duplicated",
+        repr(after_rel),
+    )
+    entry = agent._semantic_entry(
+        {"title": "Smugglers seen", "classification": "source-grounded", "action": "ADD CLUE",
+         "evidence": ["Marta Vell saw them."], "entry_links": [("Marta Vell", "Marta Vell")]},
+        "[[Session_99]]",
+    )
+    suite.check(
+        "Evidence: [[Marta Vell]] saw them." in entry,
+        "Written entries wikilink other known entities",
+        repr(entry),
+    )
+    auto_rel = agent.collect_write_approvals(
+        {"updates": [{"entity": "Copper Lantern", "path": "Syn/Copper Lantern.md",
+                      "session_history": {}, "proposals": [],
+                      "relationships": [{"target": "Marta Vell", "via": "x"}]}]},
+        auto_mode=True, dry_run=False,
+    )
+    suite.check(
+        not auto_rel.get("relationships"),
+        "Auto mode never approves relationship links",
+        repr(auto_rel.get("relationships")),
+    )
+
     # V4.16.1: body-only note edits keep frontmatter byte-for-byte.
     original_note = (
         '---\ntitle: "Synthetic Place"\ntags:\n  - place\n  - dnd\n---\n'
