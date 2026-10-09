@@ -725,6 +725,19 @@ def run() -> int:
         "Relationship proposals carry their verbatim source sentence",
         repr([r["evidence"] for r in session_rels]),
     )
+    neighbor_rels = agent.v419_session_relationships(
+        {"creates": [{"entity": "Ivo Brandt", "mention": "Ivo", "type": "npc"}], "reviews": []},
+        "The party meets Marta Vell at the docks. She introduces her brother Ivo. "
+        "Days later the weather turns cold. Old Friend writes a letter home.",
+        [inn, marta, friend],
+    )
+    neighbor_pairs = {(r["source"], r["target"], r.get("basis")) for r in neighbor_rels}
+    suite.check(
+        ("Ivo Brandt", "Marta Vell", "adjacent sentences") in neighbor_pairs
+        and not any("Old Friend" in (s, t) for s, t, _ in neighbor_pairs),
+        "Neighbor linking ties a new entity to the adjacent sentence only",
+        repr(sorted(neighbor_pairs)),
+    )
     suite.check(
         agent.parse_selection("", 5) == set() and agent.parse_selection("y", 3) == {0, 1, 2}
         and agent.parse_selection("1,3-4", 5) == {0, 2, 3} and agent.parse_selection("7", 5) is None

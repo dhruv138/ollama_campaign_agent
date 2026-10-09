@@ -1,0 +1,41 @@
+Golden score: Session 38  (751ba89..1146c6d)
+------------------------------------------------------------
+Entity discovery           : 71.4%   (target >= 85)
+Fact recall (approx)       : 30.6%   (target >= 85; 15/49)
+Placement                  : 100.0%   (target >= 90)
+Session link recall        : 55.3%
+Relationship recall        : 26.5%   (target >= 85; 49 golden links)
+Relationship precision     : 41.9%   (31 proposed)
+Relationship endpoints     : 58.1%   (upper bound: both ends surfaced)
+Unsupported new entities   : 37.5%   (target <= 5)
+
+Expected new notes:
+  OK  Union of Many
+  --  Silver Dildo
+  --  Archivist Siobhan
+  OK  Atheela
+  OK  Karyn
+  --  Peter Owens
+  OK  Zelda
+  --  Owen Family Mausoleum
+  OK  Gauntlet
+Expected updated notes:
+  --  Mistra's Academy
+  OK  Skeletal Hand  (semantic)
+  OK  Blond-Haired Youth
+  OK  Daddy Dildo Daggins
+  OK  Deanira  (semantic)
+  OK  Riffle
+  OK  Sabrina
+  OK  Talir Rengavi
+  OK  Theo'din Corvis
+  OK  Heaven's Touch
+  OK  The Two Tits  (semantic)
+  --  Velvet Glove Brothel
+Semantic proposals:
+  OK  [[Deanira]] Deaníra's interaction with the Half Elf woman
+  OK  [[Deanira]] The Zone of Truth casting
+  OK  [[The Two Tits]] Deity Worship in the Two Tits
+  OK  [[The Two Tits]] Enchanted Individuals in the Two Tits
+  OK  [[Skeletal Hand]] Rumors about the Skeletal Hand fellow
+Unsupported new entities: Jeffrey, Dimension Door, The Velvet Glove

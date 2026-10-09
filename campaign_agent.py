@@ -2774,6 +2774,7 @@ def v419_session_relationships(
         candidates.append((name, etype, patterns))
 
     per_sentence: list[tuple[str, list[tuple[str, str, str]]]] = []
+    all_sentences: list[tuple[str, list[tuple[str, str, str]]]] = []
     mentions: dict[str, int] = {}
     for sentence in source_sentences(body):
         ents: list[tuple[str, str, str]] = []  # (name, type, kind)
@@ -2787,6 +2788,7 @@ def v419_session_relationships(
         unique = list({normalize_name(e[0]): e for e in ents}.values())
         for e in unique:
             mentions[e[0]] = mentions.get(e[0], 0) + 1
+        all_sentences.append((sentence, unique))
         if len(unique) >= 2:
             per_sentence.append((sentence, unique))
 
@@ -2816,7 +2818,40 @@ def v419_session_relationships(
                     "source": src[0], "source_type": src[1], "source_kind": src[2],
                     "target": dst[0], "target_type": dst[1], "target_kind": dst[2],
                     "evidence": [sentence],
+                    "basis": "same sentence",
                 })
+
+    # Neighbor linking (V4.20): a newly introduced entity is often tied to its
+    # context by a pronoun in the next or previous sentence ("Their order is
+    # called X. She introduces herself as Y."). Pair each new entity with the
+    # entities named in the adjacent sentence. Existing-to-existing pairs stay
+    # same-sentence only to keep noise down.
+    for i, (sentence, ents) in enumerate(all_sentences):
+        news = [e for e in ents if e[2] == "new"]
+        if not news:
+            continue
+        for j in (i - 1, i + 1):
+            if not 0 <= j < len(all_sentences):
+                continue
+            neighbor_sentence, neighbor_ents = all_sentences[j]
+            for new in news:
+                for other in neighbor_ents:
+                    key = frozenset((normalize_name(new[0]), normalize_name(other[0])))
+                    if len(key) < 2 or key in seen or linked(new[0], other[0]):
+                        continue
+                    seen.add(key)
+                    if other[2] == "new":
+                        src, dst = (new, other) if mentions.get(new[0], 0) <= mentions.get(other[0], 0) else (other, new)
+                    else:
+                        src, dst = new, other
+                    first, second = (neighbor_sentence, sentence) if j < i else (sentence, neighbor_sentence)
+                    out.append({
+                        "action": "ADD RELATED",
+                        "source": src[0], "source_type": src[1], "source_kind": src[2],
+                        "target": dst[0], "target_type": dst[1], "target_kind": dst[2],
+                        "evidence": [f"{first} {second}"],
+                        "basis": "adjacent sentences",
+                    })
     return out
 
 
@@ -2867,11 +2902,12 @@ def collect_relationship_approvals(
     if not rels:
         return []
     print("\n" + "=" * 72)
-    print(f"PROPOSED RELATIONSHIPS ({len(rels)}) — each pair is named in one source sentence")
+    print(f"PROPOSED RELATIONSHIPS ({len(rels)}) — both names appear in the quoted source")
     print("=" * 72)
     for i, rel in enumerate(rels, 1):
-        print(f"  {i:>2}. [[{rel['source']}]] -> [[{rel['target']}]]")
-        print(f"      SOURCE: {_planner_short(rel['evidence'][0], 200)}")
+        basis = " (adjacent sentences)" if rel.get("basis") == "adjacent sentences" else ""
+        print(f"  {i:>2}. [[{rel['source']}]] -> [[{rel['target']}]]{basis}")
+        print(f"      SOURCE: {_planner_short(rel['evidence'][0], 260)}")
     while True:
         picked = parse_selection(
             input("Apply which relationship links? [y=all / n=none / e.g. 1,3-5] (default n): "),

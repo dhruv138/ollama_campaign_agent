@@ -449,22 +449,22 @@ resume quickly.
 
 **Current milestone:** M4 --- Generalize From Session 38 Failures
 (M1, M3 complete; M2 rubric drafted inline in `docs/m3/`)\
-**Current Campaign Agent version:** V4.19 (V4.17 plus human-approved
-relationship links from source co-mention, one summary decision per session,
-and frontmatter type synonyms such as `type: character`)\
+**Current Campaign Agent version:** V4.20 (V4.17 plus human-approved
+relationship links from source co-mention and adjacent-sentence neighbor
+linking for new entities, one summary decision per session, and frontmatter
+type synonyms such as `type: character`)\
 **Current development orchestrator:** V4.15.1\
-**Known frozen baselines:** 69/0/1 deterministic; 80/0/0 full; pipeline
+**Known frozen baselines:** 70/0/1 deterministic; 78/0/0 full; pipeline
 PASS. Golden scores per version: `docs/golden/`\
 **Last completed action:** M1 Session 37 E2E acceptance passed on a
 disposable vault (run `20261008_214712_116253`).\
-**Next action:** Golden relationship recall is 10-12% (precision 35-63%).
-Its ceiling is entity discovery: only 44-58% of golden link endpoints are
-surfaced at all, and some golden links rely on prior-session knowledge
-(agent-side RAG, deferred). Next: entity discovery (named people/places
-missed by the model, owner-qualified place names), cross-sentence links for
-newly introduced entities, and re-measuring on a larger model. Open DM
-question: Furgus / Skeletal Hand tattoo (golden vs Session 37 fixture).
-Real Session 37 trusted-vault ingestion is still pending the user's go-ahead.
+**Next action:** Golden relationship recall: Session 38 26.5% (precision
+42%), Session 37 11.6% (59%). The ceiling is entity discovery: only 44-58% of
+golden link endpoints are surfaced, and some golden links rely on
+prior-session knowledge (agent-side RAG, deferred). Next: entity discovery
+(named people/places missed by the model, owner-qualified place names). The
+DM ruled the golden vault authoritative (fixture updated); real Session 37
+ingestion waits until the agent is ~95% of golden by `campaign_agent_score.py`.
 
 **Additional notes:**
 

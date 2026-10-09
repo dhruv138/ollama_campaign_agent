@@ -1,0 +1,44 @@
+Golden score: Session 37  (87f1fcc..751ba89)
+------------------------------------------------------------
+Entity discovery           : 60.4%   (target >= 85)
+Fact recall (approx)       : 41.7%   (target >= 85; 20/48)
+Placement                  : 100.0%   (target >= 90)
+Session link recall        : 53.6%
+Relationship recall        : 11.6%   (target >= 85; 95 golden links)
+Relationship precision     : 59.1%   (22 proposed)
+Relationship endpoints     : 44.0%   (upper bound: both ends surfaced)
+Unsupported new entities   : 50.0%   (target <= 5)
+
+Expected new notes:
+  1/2 Order of Black Feathers  <- The Black Feathers
+  --  Torm
+  OK  Blond-Haired Youth
+  OK  Samuel Patel
+  --  Student Health Clinic
+  --  Temple of Mistra
+  OK  Missing Sanitation Workers
+Expected updated notes:
+  --  Werebear Curse
+  --  Mistra's Academy
+  OK  Skeletal Hand  (semantic)
+  OK  Cornhusk Dolls
+  OK  Mask of the Green Dragon
+  --  Raven Queen
+  OK  Deanira  (semantic)
+  --  Ester
+  OK  Furgus
+  OK  Riffle
+  OK  Talir Rengavi
+  OK  Theo'din Corvis
+  OK  WISC
+  OK  Heaven's Touch
+  OK  The Two Tits  (semantic)
+  --  Daggins Murder
+  --  Floating Island Mystery
+Semantic proposals:
+  OK  [[Deanira]] Deanira purchases 4 maps of the other continents
+  OK  [[Deanira]] Deanira speaks to the sailors and gets information about the Barren Toll and Wellview Helm
+  OK  [[Skeletal Hand]] Furgus sees the hint of the Skeletal Hand tattoo on his arm
+  OK  [[Skeletal Hand]] Is the Blond-Haired Youth connected to the earlier Skeletal Hand encounter?
+  OK  [[The Two Tits]] Are the Two Tits Inn basement gatherings connected to Daggins' Order?
+Unsupported new entities: The Barren Toll, The Shrine of the Raven Queen, Black-Haired Woman, Investigate the mysterious unchartable island
