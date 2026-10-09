@@ -700,6 +700,70 @@ def run() -> int:
         repr(auto_rel.get("relationships")),
     )
 
+    # V4.19: session-level relationships from sentence co-mention, including
+    # CREATE/REVIEW candidates, with one summary decision.
+    rel_plan = {
+        "creates": [{"entity": "Ivo Brandt", "mention": "Ivo", "type": "npc"}],
+        "reviews": [{"entity": "The Ember Circle", "mention": "Ember Circle", "type": "faction"}],
+    }
+    rel_body = (
+        "Marta Vell introduces Ivo, who leads the Ember Circle at the Copper Lantern. "
+        "Later the weather turns cold and nobody says anything useful."
+    )
+    session_rels = agent.v419_session_relationships(rel_plan, rel_body, [inn, marta, friend])
+    rel_pairs_got = {(r["source"], r["target"]) for r in session_rels}
+    suite.check(
+        ("Ivo Brandt", "Marta Vell") in rel_pairs_got
+        and ("The Ember Circle", "Copper Lantern") in rel_pairs_got
+        and (("Ivo Brandt", "The Ember Circle") in rel_pairs_got
+             or ("The Ember Circle", "Ivo Brandt") in rel_pairs_got),
+        "Co-mentioned entities (existing and candidates) become relationship proposals; new notes link to existing",
+        repr(sorted(rel_pairs_got)),
+    )
+    suite.check(
+        all(r["evidence"] and "weather" not in r["evidence"][0] for r in session_rels),
+        "Relationship proposals carry their verbatim source sentence",
+        repr([r["evidence"] for r in session_rels]),
+    )
+    suite.check(
+        agent.parse_selection("", 5) == set() and agent.parse_selection("y", 3) == {0, 1, 2}
+        and agent.parse_selection("1,3-4", 5) == {0, 2, 3} and agent.parse_selection("7", 5) is None
+        and agent.parse_selection("x", 5) is None,
+        "Relationship selection parses y / n / ranges and rejects invalid input",
+        "",
+    )
+    import builtins as _b
+    original_input = _b.input
+    try:
+        _b.input = lambda prompt="": "y"
+        offered = agent.collect_relationship_approvals(
+            {"relationships": session_rels}, {(agent.normalize_name("Ivo Brandt"), "npc")},
+            auto_mode=False, dry_run=False,
+        )
+    finally:
+        _b.input = original_input
+    suite.check(
+        offered and all("The Ember Circle" not in (r["source"], r["target"]) for r in offered),
+        "Links touching a candidate not approved for creation are not offered",
+        repr([(r["source"], r["target"]) for r in offered]),
+    )
+    suite.check(
+        agent.collect_relationship_approvals({"relationships": session_rels}, set(), auto_mode=True, dry_run=False) == []
+        and agent.collect_relationship_approvals({"relationships": session_rels}, set(), auto_mode=False, dry_run=True) == [],
+        "Session relationships are never approved in auto or dry-run mode",
+        "",
+    )
+
+    # V4.19: frontmatter type synonyms (e.g. player characters as
+    # `type: character`) still resolve to entity types.
+    suite.check(
+        agent.infer_type(Path("People/Deanira.md"), {"type": "character"}, {}) == "npc"
+        and agent.infer_type(Path("Places/X.md"), {"type": "place"}, {}) == "location"
+        and agent.infer_type(Path("Factions/X.md"), {"type": "faction"}, {}) == "faction",
+        "Frontmatter type synonyms map onto entity types",
+        "",
+    )
+
     # V4.16.1: body-only note edits keep frontmatter byte-for-byte.
     original_note = (
         '---\ntitle: "Synthetic Place"\ntags:\n  - place\n  - dnd\n---\n'

@@ -449,17 +449,21 @@ resume quickly.
 
 **Current milestone:** M4 --- Generalize From Session 38 Failures
 (M1, M3 complete; M2 rubric drafted inline in `docs/m3/`)\
-**Current Campaign Agent version:** V4.17 (V4.16.1 plus accent-insensitive
-matching, sentence-level evidence fallback, descriptive-phrase gate)\
+**Current Campaign Agent version:** V4.19 (V4.17 plus human-approved
+relationship links from source co-mention, one summary decision per session,
+and frontmatter type synonyms such as `type: character`)\
 **Current development orchestrator:** V4.15.1\
-**Known frozen baselines:** 58/0/1 deterministic; 69/0/0 full; pipeline
-PASS\
+**Known frozen baselines:** 69/0/1 deterministic; 80/0/0 full; pipeline
+PASS. Golden scores per version: `docs/golden/`\
 **Last completed action:** M1 Session 37 E2E acceptance passed on a
 disposable vault (run `20261008_214712_116253`).\
-**Next action:** M4 is in progress. F1, F3 and F8 (partial) are done; see
-`docs/m3/SESSION_38_BLIND_BASELINE.md` section 6. Next: F4 (subject placement
-when the topic has no note), F6 (full-name canonicalization), F5/F7
-(promoting named witnesses and suspected links to REVIEW/open questions).
+**Next action:** Golden relationship recall is 10-12% (precision 35-63%).
+Its ceiling is entity discovery: only 44-58% of golden link endpoints are
+surfaced at all, and some golden links rely on prior-session knowledge
+(agent-side RAG, deferred). Next: entity discovery (named people/places
+missed by the model, owner-qualified place names), cross-sentence links for
+newly introduced entities, and re-measuring on a larger model. Open DM
+question: Furgus / Skeletal Hand tattoo (golden vs Session 37 fixture).
 Real Session 37 trusted-vault ingestion is still pending the user's go-ahead.
 
 **Additional notes:**

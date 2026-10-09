@@ -267,7 +267,10 @@ def score(agent, expected: dict[str, Any], plan: dict[str, Any]) -> dict[str, An
         1 for a, b in rel_pairs
         if best(match, a, surfaced)[0] > 0 and best(match, b, surfaced + list(expected["touched"]))[0] > 0
     )
-    agent_pairs = set()
+    agent_pairs = {
+        (str(r.get("source") or ""), str(r.get("target") or ""))
+        for r in change_plan.get("relationships") or []
+    }
     for u in updates:
         src = str(u.get("entity") or "")
         for r in u.get("relationships") or []:

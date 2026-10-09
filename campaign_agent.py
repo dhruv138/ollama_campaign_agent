@@ -289,10 +289,21 @@ def note_display_title(path: Path, fm: dict[str, Any], body: str) -> str:
     return path.stem
 
 
+# Frontmatter `type:` synonyms used by common vault schemas, mapped onto the
+# agent's entity types (e.g. player characters stored as `type: character`).
+NOTE_TYPE_SYNONYMS = {
+    "character": "npc", "pc": "npc", "player character": "npc",
+    "player_character": "npc", "person": "npc", "people": "npc",
+    "place": "location", "places": "location",
+    "organization": "faction", "organisation": "faction", "group": "faction",
+}
+
+
 def infer_type(path: Path, fm: dict[str, Any], type_folders: dict[str, str]) -> str | None:
     t = fm.get("type")
     if isinstance(t, str) and t.strip():
-        return t.strip().lower()
+        value = t.strip().lower()
+        return NOTE_TYPE_SYNONYMS.get(value, value)
 
     parts_lower = [p.lower() for p in path.parts]
     for entity_type, folder in type_folders.items():
@@ -2572,7 +2583,9 @@ def build_change_plan(
                     }
                     for section, row in related_rows
                 ]
-                relationships = v418_relationship_proposals(note, proposals, existing_notes)
+                # Records inline entry links on each proposal. Relationship
+                # links themselves are proposed session-wide (V4.19) below.
+                v418_relationship_proposals(note, proposals, existing_notes)
                 plan["updates"].append({
                     "entity": note.title,
                     "type": str(note.note_type or entity.get("type") or ""),
@@ -2586,7 +2599,7 @@ def build_change_plan(
                     },
                     "proposals": proposals,
                     "related": related,
-                    "relationships": relationships,
+                    "relationships": [],
                     "write_enabled": False,
                 })
 
@@ -2644,6 +2657,9 @@ def build_change_plan(
     _v463_promote_quest_reviews(plan, campaign_state, existing_notes, vault_root, type_folders)
     _v463_consolidate_candidates(plan)
     v416_gate_plan_candidates(plan)
+    plan["relationships"] = v419_session_relationships(
+        plan, read_canonical_session_body(target), existing_notes,
+    )
     return plan
 
 
@@ -2725,6 +2741,181 @@ def v418_relationship_proposals(
                 "evidence": proposal.get("evidence", [])[:1],
             })
     return relationships
+
+
+def v419_session_relationships(
+    plan: dict[str, Any],
+    body: str,
+    existing_notes: list[VaultNote],
+) -> list[dict[str, Any]]:
+    """
+    Propose relationship links from sentence co-mention in the session source.
+
+    Two entities named in the same verbatim source sentence form a candidate
+    link. Endpoints are existing entity notes or CREATE/REVIEW candidates; a link
+    touching a candidate only becomes applicable if that candidate is approved
+    for creation. The link is written on the more specific endpoint: a new note
+    links to the existing one, otherwise the less-mentioned note links to the
+    more-mentioned one. Pairs already linked in either note are skipped.
+    """
+    by_title = {n.title: n for n in existing_notes}
+    candidates = []
+    for row in (plan.get("creates") or []) + (plan.get("reviews") or []):
+        name = str(row.get("entity") or "").strip()
+        etype = str(row.get("type") or "").lower().strip()
+        if not name or not etype:
+            continue
+        variants = {name, str(row.get("mention") or "").strip(),
+                    re.sub(r"^(?:the|a|an)\s+", "", name, flags=re.I)}
+        patterns = [
+            re.compile(r"(?<!\w)" + re.escape(fold_accents_same_length(v)) + r"(?!\w)", re.I)
+            for v in variants if len(normalize_name(v)) >= 3
+        ]
+        candidates.append((name, etype, patterns))
+
+    per_sentence: list[tuple[str, list[tuple[str, str, str]]]] = []
+    mentions: dict[str, int] = {}
+    for sentence in source_sentences(body):
+        ents: list[tuple[str, str, str]] = []  # (name, type, kind)
+        for m in extract_prose_existing_entities(sentence, existing_notes):
+            if m["type"] in ENTITY_TYPES:
+                ents.append((m["name"], m["type"], "existing"))
+        folded = fold_accents_same_length(sentence)
+        for name, etype, patterns in candidates:
+            if any(p.search(folded) for p in patterns):
+                ents.append((name, etype, "new"))
+        unique = list({normalize_name(e[0]): e for e in ents}.values())
+        for e in unique:
+            mentions[e[0]] = mentions.get(e[0], 0) + 1
+        if len(unique) >= 2:
+            per_sentence.append((sentence, unique))
+
+    def linked(a: str, b: str) -> bool:
+        for x, y in ((a, b), (b, a)):
+            note = by_title.get(x)
+            if note is not None and normalize_name(y) in _related_targets(note.frontmatter):
+                return True
+        return False
+
+    out: list[dict[str, Any]] = []
+    seen: set[frozenset[str]] = set()
+    for sentence, ents in per_sentence:
+        for i in range(len(ents)):
+            for j in range(i + 1, len(ents)):
+                a, b = ents[i], ents[j]
+                key = frozenset((normalize_name(a[0]), normalize_name(b[0])))
+                if key in seen or linked(a[0], b[0]):
+                    continue
+                seen.add(key)
+                if a[2] != b[2]:
+                    src, dst = (a, b) if a[2] == "new" else (b, a)
+                else:
+                    src, dst = (a, b) if mentions.get(a[0], 0) <= mentions.get(b[0], 0) else (b, a)
+                out.append({
+                    "action": "ADD RELATED",
+                    "source": src[0], "source_type": src[1], "source_kind": src[2],
+                    "target": dst[0], "target_type": dst[1], "target_kind": dst[2],
+                    "evidence": [sentence],
+                })
+    return out
+
+
+def parse_selection(answer: str, count: int) -> set[int] | None:
+    """Parse 'y', 'n', '' or '1,3-5' into 0-based indexes; None if invalid."""
+    answer = answer.strip().lower()
+    if answer in ("", "n", "no", "none"):
+        return set()
+    if answer in ("y", "yes", "all"):
+        return set(range(count))
+    picked: set[int] = set()
+    for part in answer.replace(" ", "").split(","):
+        m = re.fullmatch(r"(\d+)(?:-(\d+))?", part)
+        if not m:
+            return None
+        lo, hi = int(m.group(1)), int(m.group(2) or m.group(1))
+        if lo < 1 or hi > count or lo > hi:
+            return None
+        picked.update(range(lo - 1, hi))
+    return picked
+
+
+def collect_relationship_approvals(
+    plan: dict[str, Any],
+    approved_new: set[tuple[str, str]],
+    *,
+    auto_mode: bool,
+    dry_run: bool,
+) -> list[dict[str, Any]]:
+    """
+    Show every applicable session relationship in one table and take a single
+    decision (all / none / a selection). Links touching a candidate that was not
+    approved for creation are not offered. Never auto-approved.
+    """
+    if dry_run or auto_mode:
+        return []
+
+    def applicable(rel: dict[str, Any]) -> bool:
+        for kind, name, etype in (
+            (rel.get("source_kind"), rel.get("source"), rel.get("source_type")),
+            (rel.get("target_kind"), rel.get("target"), rel.get("target_type")),
+        ):
+            if kind == "new" and (normalize_name(str(name)), str(etype)) not in approved_new:
+                return False
+        return True
+
+    rels = [r for r in plan.get("relationships") or [] if applicable(r)]
+    if not rels:
+        return []
+    print("\n" + "=" * 72)
+    print(f"PROPOSED RELATIONSHIPS ({len(rels)}) — each pair is named in one source sentence")
+    print("=" * 72)
+    for i, rel in enumerate(rels, 1):
+        print(f"  {i:>2}. [[{rel['source']}]] -> [[{rel['target']}]]")
+        print(f"      SOURCE: {_planner_short(rel['evidence'][0], 200)}")
+    while True:
+        picked = parse_selection(
+            input("Apply which relationship links? [y=all / n=none / e.g. 1,3-5] (default n): "),
+            len(rels),
+        )
+        if picked is not None:
+            return [rels[i] for i in sorted(picked)]
+        print("Please enter y, n, or numbers like 1,3-5.")
+
+
+def apply_relationship_writes(
+    approved: list[dict[str, Any]],
+    plan: dict[str, Any],
+    vault_root: Path,
+    backup_dir: Path,
+    type_folders: dict[str, str],
+) -> list[Path]:
+    """Write approved related: links, backing up existing files once."""
+    paths_by_entity = {
+        normalize_name(str(u.get("entity") or "")): str(u.get("path") or "")
+        for u in plan.get("updates") or [] if u.get("path")
+    }
+    changed: list[Path] = []
+    for rel in approved:
+        source = str(rel.get("source") or "")
+        rel_path = paths_by_entity.get(normalize_name(source))
+        if not rel_path:
+            folder = type_folders.get(str(rel.get("source_type") or ""), "")
+            rel_path = str(Path(folder) / f"{safe_filename(source)}.md") if folder else ""
+        path = (vault_root / rel_path) if rel_path else None
+        if path is None or not path.exists():
+            print(f"WARNING: relationship source note not found, skipped: {source}")
+            continue
+        text = path.read_text(encoding="utf-8")
+        new_text = add_related_link_preserving(text, str(rel.get("target") or ""))
+        if new_text == text:
+            continue
+        created_now = bool(ACTIVE_TRANSACTION) and path.relative_to(vault_root).as_posix() in ACTIVE_TRANSACTION["created"]
+        if not created_now:
+            backup_file(path, vault_root, backup_dir)
+        path.write_text(new_text, encoding="utf-8")
+        if path not in changed:
+            changed.append(path)
+    return changed
 
 
 def add_related_link_preserving(text: str, target: str) -> str:
@@ -2908,6 +3099,14 @@ def print_change_plan(plan: dict[str, Any]) -> None:
         print(f"  [I{i}] {row.get('entity')} [{row.get('type')}] — {row.get('reason')}")
 
     metadata = plan.get("session_metadata", {})
+    rels = plan.get("relationships") or []
+    print(f"\nPROPOSED RELATIONSHIPS ({len(rels)})")
+    if not rels:
+        print("  (none)")
+    for i, rel in enumerate(rels, 1):
+        tag = " [needs creation approval]" if "new" in (rel.get("source_kind"), rel.get("target_kind")) else ""
+        print(f"  [L{i}] [[{rel.get('source')}]] -> [[{rel.get('target')}]]{tag}")
+
     print("\nSESSION METADATA PROPOSAL")
     print(f"  Target: {metadata.get('target')}")
     for key, values in (metadata.get("add") or {}).items():
@@ -3813,6 +4012,13 @@ def _main_impl() -> int:
         dry_run=bool(args.dry_run),
     )
 
+    approved_relationships = collect_relationship_approvals(
+        change_plan,
+        approved_new,
+        auto_mode=bool(args.auto),
+        dry_run=bool(args.dry_run),
+    )
+
     if args.dry_run:
         print("\nDry run complete. No files changed.")
         return 0
@@ -3825,7 +4031,11 @@ def _main_impl() -> int:
     # V4.6.3: do not create empty transactions.
     # A transaction represents actual vault mutation, not merely a completed
     # approval session.
-    approved_semantic = bool(planner_approvals.get("semantic")) or bool(planner_approvals.get("relationships"))
+    approved_semantic = (
+        bool(planner_approvals.get("semantic"))
+        or bool(planner_approvals.get("relationships"))
+        or bool(approved_relationships)
+    )
     approved_history = bool(planner_approvals.get("session_history_paths"))
     approved_metadata = bool(planner_approvals.get("session_metadata"))
     approved_wikilinks = bool(planner_approvals.get("session_wikilinks"))
@@ -3935,6 +4145,9 @@ def _main_impl() -> int:
         vault_root,
         backup_dir,
     )
+    relationship_changed = apply_relationship_writes(
+        approved_relationships, change_plan, vault_root, backup_dir, type_folders,
+    )
 
     manifest_path = finish_transaction(vault_root)
 
@@ -3967,6 +4180,11 @@ def _main_impl() -> int:
     if planner_changed:
         print("\nApproved planner updates written:")
         for path in planner_changed:
+            print(f"  - {path.relative_to(vault_root)}")
+
+    if relationship_changed:
+        print("\nRelationship links written:")
+        for path in relationship_changed:
             print(f"  - {path.relative_to(vault_root)}")
 
     print("\nTip: Ollama Notes Chat should re-index these changes automatically if auto-indexing is enabled.")
