@@ -150,9 +150,22 @@ aggregate recall exceeds 85%.
 -   Session 37 can be scored with it.
 -   Misses can be categorized consistently.
 
-**Status:** ☐ Not started ☐ In progress ☐ Complete
+**Status:** ☐ Not started ☑ In progress ☐ Complete
 
 **Findings / notes:**
+
+-   `campaign_agent_score.py` scores the agent's read-only plan against the
+    DM-curated golden vault (`~/goldenVault/IceMooreVault`): it rebuilds the
+    golden *before* commit in a scratch dir, ingests the raw session, and
+    compares with the golden *after* commit. Only notes whose added lines
+    link the session count as touched, so vault-wide edits in the same
+    commit are ignored. `--plan-json` rescores a saved plan without Ollama.
+-   Golden refs: Session 37 = `87f1fcc..751ba89`, Session 38 =
+    `751ba89..1146c6d`. Baselines (V4.17) are in `docs/golden/`.
+-   Fact recall is a token-overlap approximation because golden notes are
+    prose; placement, discovery and links are structural.
+-   Remaining: confirm the Furgus / Skeletal Hand tattoo conflict between
+    the golden vault and the Session 37 fixture (see below).
 
 ------------------------------------------------------------------------
 
