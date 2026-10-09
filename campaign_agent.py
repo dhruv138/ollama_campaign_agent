@@ -2518,7 +2518,100 @@ def build_change_plan(
     _v463_assign_primary_homes(plan["updates"], campaign_state)
     _v463_promote_quest_reviews(plan, campaign_state, existing_notes, vault_root, type_folders)
     _v463_consolidate_candidates(plan)
+    v416_gate_plan_candidates(plan)
     return plan
+
+
+def v416_gate_plan_candidates(plan: dict[str, Any]) -> None:
+    """
+    Apply the candidate quality gate to the SAFE CHANGE PLAN itself.
+
+    The plan is the authoritative creation-approval source, so a candidate the
+    quality gate blocks must land in IGNORE rather than CREATE NEW / REVIEW.
+    """
+    ignores = plan.setdefault("ignores", [])
+    for bucket in ("creates", "reviews"):
+        kept = []
+        for row in plan.get(bucket, []) or []:
+            entity = {
+                "name": row.get("entity") or row.get("mention") or "",
+                "mention": row.get("mention") or row.get("entity") or "",
+                "type": row.get("type") or "",
+                "significance": row.get("significance") or "",
+            }
+            ok, reason = v463_candidate_quality_gate(entity)
+            if ok:
+                kept.append(row)
+            else:
+                blocked = dict(row)
+                blocked["reason"] = reason
+                ignores.append(blocked)
+        plan[bucket] = kept
+
+
+def v416_plan_creation_targets(
+    change_plan: dict[str, Any],
+    approved_keys: set[tuple[str, str]],
+    resolved_full: list[tuple[dict[str, Any], Any, str]],
+    conflict_keys: set[str],
+) -> tuple[dict[int, dict[str, Any]], list[dict[str, Any]]]:
+    """
+    Map approved SAFE CHANGE PLAN candidates to concrete entities to create.
+
+    Returns (by_index, planner_only):
+      by_index     - resolved_full index -> entity to create (named as in the plan)
+      planner_only - approved plan rows with no resolved_full counterpart, such as
+                     campaign-state quest promotions
+
+    Each approved key is created at most once; unapproved or IGNORE rows never
+    produce a creation target.
+    """
+    approved_rows: dict[tuple[str, str], dict[str, Any]] = {}
+    for bucket in ("creates", "reviews"):
+        for row in change_plan.get(bucket, []) or []:
+            name = str(row.get("entity") or row.get("mention") or "").strip()
+            etype = str(row.get("type") or "").lower().strip()
+            key = (normalize_name(name), etype)
+            if name and etype and key in approved_keys and key not in approved_rows:
+                approved_rows[key] = row
+
+    by_index: dict[int, dict[str, Any]] = {}
+    consumed: set[tuple[str, str]] = set()
+    for i, (entity, note, _) in enumerate(resolved_full):
+        if note is not None:
+            continue
+        mention = str(entity.get("mention") or entity.get("name") or "")
+        if normalize_name(mention) in conflict_keys:
+            continue
+        etype = str(entity.get("type") or "").lower().strip()
+        canonical = v463_apply_canonical_candidate_name(entity)
+        candidates = [
+            (normalize_name(str(canonical.get("name") or "")), etype),
+            (normalize_name(mention), etype),
+            _v463_candidate_key(mention, etype),
+            _v463_candidate_key(str(canonical.get("name") or ""), etype),
+        ]
+        key = next((k for k in candidates if k in approved_rows), None)
+        if key is None or key in consumed:
+            continue
+        consumed.add(key)
+        target = dict(entity)
+        target["name"] = str(approved_rows[key].get("entity") or canonical.get("name") or mention)
+        by_index[i] = target
+
+    planner_only: list[dict[str, Any]] = []
+    for key, row in approved_rows.items():
+        if key in consumed:
+            continue
+        name = str(row.get("entity") or row.get("mention") or "").strip()
+        planner_only.append({
+            "name": name,
+            "mention": name,
+            "type": str(row.get("type") or "").lower().strip(),
+            "significance": row.get("significance") or "meaningful",
+            "reason": row.get("reason") or "",
+        })
+    return by_index, planner_only
 
 
 def print_change_plan(plan: dict[str, Any]) -> None:
@@ -3439,9 +3532,9 @@ def _main_impl() -> int:
         dry_run=bool(args.dry_run),
     )
 
-    approved_new = select_new_entities(
-        resolved_full,
-        conflict_keys,
+    # V4.16: the SAFE CHANGE PLAN is the only source of creation approval.
+    approved_new = select_new_entities_from_plan(
+        change_plan,
         create_missing=create_missing,
         auto_mode=bool(args.auto),
         dry_run=bool(args.dry_run),
@@ -3489,7 +3582,33 @@ def _main_impl() -> int:
     final_resolved: list[tuple[dict[str, Any], VaultNote | None]] = []
     created_paths: list[Path] = []
 
-    for entity, note, method in resolved_full:
+    creation_by_index, planner_only_creations = v416_plan_creation_targets(
+        change_plan, approved_new, resolved_full, conflict_keys,
+    )
+
+    def _create_approved(entity: dict[str, Any]) -> VaultNote | None:
+        etype = str(entity.get("type") or "").lower()
+        if not create_missing or etype not in type_folders or etype not in template_files:
+            return None
+        title = str(entity.get("name") or entity.get("mention") or "").strip()
+        existing_path = vault_root / type_folders[etype] / f"{safe_filename(title)}.md"
+        if existing_path.exists():
+            # Never overwrite an existing note through the creation path.
+            print(f"  ! Skipping creation; note already exists: {existing_path.relative_to(vault_root)}")
+            return read_note(existing_path, vault_root, type_folders)
+        new_path = create_entity_note(
+            entity,
+            vault_root,
+            target.title,
+            type_folders,
+            template_folder,
+            template_files,
+        )
+        created_paths.append(new_path)
+        record_created_file(new_path, vault_root)
+        return read_note(new_path, vault_root, type_folders)
+
+    for i, (entity, note, method) in enumerate(resolved_full):
         entity_key = normalize_name(entity.get("mention") or entity.get("name") or "")
         if entity_key in conflict_keys:
             final_resolved.append((entity, None))
@@ -3499,27 +3618,14 @@ def _main_impl() -> int:
             final_resolved.append((entity, note))
             continue
 
-        entity_type = str(entity.get("type") or "").lower()
-        approval_key = (entity_key, entity_type)
-        if approval_key not in approved_new:
+        if i not in creation_by_index:
             final_resolved.append((entity, None))
             continue
 
-        if create_missing:
-            new_path = create_entity_note(
-                entity,
-                vault_root,
-                target.title,
-                type_folders,
-                template_folder,
-                template_files,
-            )
-            created_paths.append(new_path)
-            record_created_file(new_path, vault_root)
-            new_note = read_note(new_path, vault_root, type_folders)
-            final_resolved.append((entity, new_note))
-        else:
-            final_resolved.append((entity, None))
+        final_resolved.append((entity, _create_approved(creation_by_index[i])))
+
+    for entity in planner_only_creations:
+        final_resolved.append((entity, _create_approved(entity)))
 
     # Session-body wikilinking is a separately approved operation.
     replacements: list[tuple[str, str]] = []

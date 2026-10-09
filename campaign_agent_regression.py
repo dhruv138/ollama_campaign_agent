@@ -477,6 +477,94 @@ def run() -> int:
             f"prompts={prompted!r}",
         )
 
+    # V4.16: the SAFE CHANGE PLAN itself must honor the candidate quality gate,
+    # so a gate-blocked candidate can never become approvable (even in --auto).
+    if not hasattr(agent, "v416_gate_plan_candidates"):
+        suite.check(False, "V4.16 plan quality gate is available", "missing v416_gate_plan_candidates()")
+    else:
+        gated_plan = {
+            "creates": [
+                {"entity": "Synthetic New NPC", "mention": "Synthetic New NPC",
+                 "type": "npc", "significance": "meaningful"},
+                {"entity": "The fertility statues", "mention": "The fertility statues",
+                 "type": "item", "significance": "meaningful"},
+            ],
+            "reviews": [
+                {"entity": "Sailors", "mention": "Sailors",
+                 "type": "npc", "significance": "meaningful"},
+            ],
+            "ignores": [],
+        }
+        agent.v416_gate_plan_candidates(gated_plan)
+        create_names = [r["entity"] for r in gated_plan["creates"]]
+        review_names = [r["entity"] for r in gated_plan["reviews"]]
+        ignore_names = [r["entity"] for r in gated_plan["ignores"]]
+        suite.check(
+            create_names == ["Synthetic New NPC"],
+            "Plan quality gate keeps eligible CREATE candidates",
+            f"creates={create_names!r}",
+        )
+        suite.check(
+            "The fertility statues" in ignore_names and "Sailors" in ignore_names
+            and not review_names,
+            "Plan quality gate moves blocked CREATE/REVIEW candidates to IGNORE",
+            f"reviews={review_names!r}, ignores={ignore_names!r}",
+        )
+        auto_after_gate = agent.select_new_entities_from_plan(
+            gated_plan, create_missing=True, auto_mode=True, dry_run=False,
+        )
+        suite.check(
+            (agent.normalize_name("The fertility statues"), "item") not in auto_after_gate,
+            "Auto mode cannot approve a gate-blocked candidate",
+            f"approved={sorted(auto_after_gate)!r}",
+        )
+
+    # V4.16: approved plan rows map to concrete creations, including
+    # planner-only rows that never appeared in resolved_full.
+    if not hasattr(agent, "v416_plan_creation_targets"):
+        suite.check(False, "V4.16 plan creation mapping is available", "missing v416_plan_creation_targets()")
+    else:
+        creation_plan = {
+            "creates": [{"entity": "Synthetic New NPC", "mention": "synthetic new npc", "type": "npc"}],
+            "reviews": [
+                {"entity": "Synthetic Promoted Quest", "mention": "Synthetic Promoted Quest", "type": "quest"},
+                {"entity": "Synthetic Rejected NPC", "mention": "Synthetic Rejected NPC", "type": "npc"},
+            ],
+            "ignores": [{"entity": "Synthetic Blocked Candidate", "type": "npc"}],
+        }
+        approved_keys = {
+            (agent.normalize_name("Synthetic New NPC"), "npc"),
+            (agent.normalize_name("Synthetic Promoted Quest"), "quest"),
+        }
+        resolved_rows = [
+            ({"mention": "synthetic new npc", "name": "synthetic new npc", "type": "npc"}, None, "none"),
+            ({"mention": "Synthetic New NPC", "name": "Synthetic New NPC", "type": "npc"}, None, "none"),
+            ({"mention": "Synthetic Rejected NPC", "name": "Synthetic Rejected NPC", "type": "npc"}, None, "none"),
+            ({"mention": "Synthetic Blocked Candidate", "name": "Synthetic Blocked Candidate", "type": "npc"}, None, "none"),
+        ]
+        by_index, planner_only = agent.v416_plan_creation_targets(
+            creation_plan, approved_keys, resolved_rows, set(),
+        )
+        suite.check(
+            list(by_index) == [0] and by_index[0].get("name") == "Synthetic New NPC",
+            "Approved CREATE maps to one resolved entity, named as in the plan",
+            f"by_index={by_index!r}",
+        )
+        suite.check(
+            [e.get("name") for e in planner_only] == ["Synthetic Promoted Quest"]
+            and planner_only[0].get("type") == "quest",
+            "Approved planner-only REVIEW candidate becomes a creation target",
+            f"planner_only={planner_only!r}",
+        )
+        none_approved, none_planner = agent.v416_plan_creation_targets(
+            creation_plan, set(), resolved_rows, set(),
+        )
+        suite.check(
+            not none_approved and not none_planner,
+            "No approvals produce no creation targets",
+            f"by_index={none_approved!r}, planner_only={none_planner!r}",
+        )
+
     # 7. Safety invariant: this harness never invokes the CLI/write path.
     if (fixture.get("safety") or {}).get("dry_run_must_not_write"):
         suite.check(
