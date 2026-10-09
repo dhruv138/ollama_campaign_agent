@@ -67,21 +67,19 @@
     }
   ],
 
-  "expected_related_only": [
-    {
-      "entity": "Furgus",
-      "title_contains": "Skeletal Hand tattoo"
-    }
-  ],
+  "expected_related_only": [],
 
-  "forbidden_updates": [
+  "forbidden_updates": [],
+
+  "dm_decisions": [
     {
-      "entity": "Cornhusk Dolls",
-      "title_contains": "Temple"
-    },
-    {
-      "entity": "Furgus",
-      "title_contains": "Skeletal Hand tattoo"
+      "date": "2026-10-09",
+      "decision": "The DM-curated golden vault (~/goldenVault/IceMooreVault) is authoritative for what happened.",
+      "removed": [
+        "expected_related_only Furgus / 'Skeletal Hand tattoo': golden records the tattoo sighting on Furgus's note.",
+        "forbidden_updates Furgus / 'Skeletal Hand tattoo': same reason.",
+        "forbidden_updates Cornhusk Dolls / 'Temple': golden records Theo leaving a doll in the Raven Queen's temple on the Cornhusk Dolls note."
+      ]
     }
   ],
 
