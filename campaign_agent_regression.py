@@ -594,6 +594,55 @@ def run() -> int:
         repr(linked),
     )
 
+    # V4.17 (M4/F8): descriptive common-noun phrases are not creatable entities,
+    # while capitalized proper names (with or without an article) still are.
+    for blocked_name, blocked_type in (
+        ("The warehouse", "location"), ("The mausoleum", "location"),
+        ("The collar of fine jewels", "item"), ("a cloaked hooded figure", "npc"),
+    ):
+        ok, _ = agent.v463_candidate_quality_gate(
+            {"name": blocked_name, "type": blocked_type, "significance": "meaningful"})
+        suite.check(not ok, f"Descriptive phrase is not creatable: {blocked_name}", "")
+    for kept_name, kept_type in (
+        ("The Temple of the Raven Queen", "location"), ("Samuel Patel", "npc"),
+        ("The Two Tits", "location"), ("Mask of the Green Dragon", "item"),
+    ):
+        ok, reason = agent.v463_candidate_quality_gate(
+            {"name": kept_name, "type": kept_type, "significance": "meaningful"})
+        suite.check(ok, f"Proper name stays creatable: {kept_name}", reason)
+
+    # V4.17 (M4/F3): rows outside the legacy topic rules are grounded by
+    # session-agnostic sentence retrieval, and unsupported rows stay ungrounded.
+    synthetic_body = (
+        "The party reaches the Copper Lantern, a tavern on the docks. "
+        "Inside, Marta the innkeeper warns that smugglers use the cellar tunnels "
+        "every new moon.\nLater the group buys rope and lanterns in the market."
+    )
+    synthetic_sentences = agent.source_sentences(synthetic_body)
+    grounded = agent.generic_sentence_evidence(
+        {"title": "Smugglers in the cellar tunnels",
+         "detail": "Marta says smugglers use the cellar tunnels at the new moon."},
+        synthetic_sentences,
+    )
+    suite.check(
+        len(grounded) >= 1 and "smugglers use the cellar tunnels" in grounded[0],
+        "Generic evidence retrieves the verbatim supporting sentence",
+        repr(grounded),
+    )
+    ungrounded = agent.generic_sentence_evidence(
+        {"title": "Dragon attack", "detail": "A red dragon burned the harbor."},
+        synthetic_sentences,
+    )
+    suite.check(not ungrounded, "Unsupported row gets no generic evidence", repr(ungrounded))
+    wrapped = agent.source_sentences(
+        "First sentence of the note is\nwrapped across lines. The second sentence follows it.")
+    suite.check(
+        wrapped == ["First sentence of the note is wrapped across lines.",
+                    "The second sentence follows it."],
+        "Sentence evidence is independent of line wrapping",
+        repr(wrapped),
+    )
+
     # V4.16.1: body-only note edits keep frontmatter byte-for-byte.
     original_note = (
         '---\ntitle: "Synthetic Place"\ntags:\n  - place\n  - dnd\n---\n'

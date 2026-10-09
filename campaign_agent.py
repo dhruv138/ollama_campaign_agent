@@ -794,11 +794,66 @@ def extract_explicit_questions_v463(body: str) -> list[dict[str, Any]]:
     return rows
 
 
-def attach_evidence_to_state_v463(result: dict[str, Any], evidence: list[dict[str, Any]]) -> None:
+_EVIDENCE_STOPWORDS = {
+    "the", "and", "that", "this", "with", "from", "into", "they", "them", "their",
+    "there", "then", "when", "where", "what", "have", "has", "had", "was", "were",
+    "for", "but", "not", "his", "her", "she", "him", "about", "after", "before",
+    "through", "one", "two", "some", "session", "party", "also", "been", "being",
+    "which", "while", "would", "could", "should", "very", "just", "more", "most",
+    "other", "others", "such", "than", "these", "those", "will", "your", "says",
+}
+
+
+def _evidence_tokens(text: str) -> set[str]:
+    return {
+        w for w in normalize_name(text).split()
+        if len(w) >= 4 and w not in _EVIDENCE_STOPWORDS
+    }
+
+
+def source_sentences(body: str) -> list[str]:
+    """Split source prose into sentences, independent of how lines are wrapped."""
+    text = re.sub(r"\s+", " ", body)
+    parts = re.split(r"(?<=[.!?])\s+(?=[\"'A-Z\[])", text)
+    return [p.strip() for p in parts if len(p.strip()) >= 20]
+
+
+def generic_sentence_evidence(
+    row: dict[str, Any],
+    sentences: list[str],
+    limit: int = 2,
+) -> list[str]:
     """
-    Attach evidence by deterministic semantic category, not generic token overlap.
-    Rows with no confident category receive no SOURCE rather than an unrelated one.
+    Session-agnostic grounding: return the verbatim source sentences that share
+    the most distinctive words with an extracted row. A sentence qualifies only
+    with >= 2 shared distinctive words (or one long, specific word), so rows the
+    source does not support stay ungrounded instead of borrowing unrelated text.
     """
+    topic = _evidence_tokens(f"{row.get('title') or ''} {row.get('detail') or ''}")
+    if not topic:
+        return []
+    scored = []
+    for i, sentence in enumerate(sentences):
+        overlap = topic & _evidence_tokens(sentence)
+        if len(overlap) >= 2 or any(len(w) >= 9 for w in overlap):
+            # Longer shared words are more specific, so they count for more.
+            weight = sum(min(len(w), 10) for w in overlap)
+            scored.append((-weight, i, sentence))
+    best = sorted(scored)[:limit]
+    return [s for _, _, s in sorted(best, key=lambda x: x[1])]
+
+
+def attach_evidence_to_state_v463(
+    result: dict[str, Any],
+    evidence: list[dict[str, Any]],
+    body: str | None = None,
+) -> None:
+    """
+    Attach evidence by deterministic semantic category first. Rows with no
+    category fall back to session-agnostic sentence retrieval from the source
+    body (V4.17), and get no SOURCE when no sentence supports them.
+    """
+    sentences = source_sentences(body) if body else []
     by_kind: dict[str, list[str]] = {}
     for ev in evidence:
         kind = str(ev.get("kind") or "")
@@ -829,9 +884,10 @@ def attach_evidence_to_state_v463(result: dict[str, Any], evidence: list[dict[st
                 continue
             kind = classify(row)
             if not kind:
-                # Preserve source-only question evidence, but do not fuzzy-attach anything.
+                # Preserve source-only question evidence; other rows are grounded
+                # only by sentences that share distinctive words with the row.
                 if section != "open_questions":
-                    row["evidence"] = []
+                    row["evidence"] = generic_sentence_evidence(row, sentences)
                 continue
             sources = list(dict.fromkeys(by_kind.get(kind, [])))
             if sources:
@@ -1210,7 +1266,7 @@ Return developments only when the session actually establishes/reports them.
         "source_evidence": evidence,
         "source_diagnostics": source_diag,
     }
-    attach_evidence_to_state_v463(result, evidence)
+    attach_evidence_to_state_v463(result, evidence, canonical_body)
     result["entity_source_diagnostics"] = {
         "yaml": len(yaml_entities),
         "wikilinks": len(wikilink_entities),
@@ -2791,6 +2847,16 @@ def v463_candidate_quality_gate(entity: dict[str, Any]) -> tuple[bool, str]:
             return False, "incidental unnamed NPC; keep as context unless recurring"
     if etype == "quest" and low == "the gala":
         return False, "event mentioned by a TODO, not established as a standalone quest"
+    if etype in {"npc", "location", "item"}:
+        # "The warehouse", "the collar of fine jewels": an article followed only
+        # by lowercase words describes something rather than naming it.
+        words = name.split()
+        if (
+            len(words) >= 2
+            and words[0].casefold() in {"the", "a", "an"}
+            and all(w[:1].islower() for w in words[1:] if w[:1].isalpha())
+        ):
+            return False, "descriptive common-noun phrase rather than a proper name"
     if len(name) > 90 or name.count(" ") >= 14:
         return False, "sentence-like extraction fragment"
     return True, ""

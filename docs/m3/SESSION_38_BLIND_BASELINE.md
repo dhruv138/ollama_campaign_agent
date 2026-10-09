@@ -119,3 +119,21 @@ classified below so it can drive a general fix in M4.
 | F7 | Missed entity / fact | The end-of-session plot (stolen documents, Archivist Siobhan) was not promoted to an entity or open question |
 | F8 | Unsupported inference | Unnamed one-off figure proposed as CREATE. The quality gate's NPC rules are literal Session 37 strings (`goliath sailor`, `sailors`) |
 | F9 | Missed lifecycle | A Session 37 open question (Two Tits ↔ Daggins' Order) is answered but not resolved (deferred knowledge-lifecycle feature) |
+
+---
+
+## 6. M4 progress (post-baseline runs; these do not change the blind score)
+
+| Run | Agent | Change | Effect on Session 38 |
+|---|---|---|---|
+| `session_38_run2_after_F1.txt` | V4.17 | F1 accent folding, plus the Velvet Glove alias in the vault | Existing matches 11/11 (was 10 + a duplicate `Deaníra` + an unmatched `Velvet Glove`) |
+| `session_38_run3_after_F3_F8.txt` | V4.17 | F3 sentence-level evidence fallback; F8 descriptive-phrase gate | Wrong-entity fact on The Two Tits is gone; Deanira clue and the Andrew/Skeletal Hand claim are now source-grounded; `The mausoleum`, `The warehouse`, `The graveyard`, `The crypt`, `The documents` go to IGNORE |
+
+Still open after run 3:
+
+- **F4:** Gauntlet details still land on Riffle. No Gauntlet note exists, and the planner falls back to the actor. Heaven's Touch still gets no facts.
+- **F5 / F7:** Andrew and Archivist Siobhan are not proposed. The stolen-documents cliffhanger is not an open question.
+- **F6:** `Peter` is proposed instead of `Peter Owens`.
+- **F8 (partial):** spell names (`Dimension Door` as a location) and capitalized descriptions without an article (`Cloaked hooded figure`) still pass the gate.
+- **F9:** the Union of Many does not resolve the Session 37 Two Tits / Daggins' Order open question.
+- Variance: `Jeffrey` (incidental) appears in some runs.

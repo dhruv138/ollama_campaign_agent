@@ -436,17 +436,18 @@ resume quickly.
 
 **Current milestone:** M4 --- Generalize From Session 38 Failures
 (M1, M3 complete; M2 rubric drafted inline in `docs/m3/`)\
-**Current Campaign Agent version:** V4.16.1 (plan-driven, quality-gated
-creation; frontmatter-preserving writes; placeholder-free created notes)\
+**Current Campaign Agent version:** V4.17 (V4.16.1 plus accent-insensitive
+matching, sentence-level evidence fallback, descriptive-phrase gate)\
 **Current development orchestrator:** V4.15.1\
-**Known frozen baselines:** 44/0/1 deterministic; 55/0/0 full; pipeline
+**Known frozen baselines:** 58/0/1 deterministic; 69/0/0 full; pipeline
 PASS\
 **Last completed action:** M1 Session 37 E2E acceptance passed on a
 disposable vault (run `20261008_214712_116253`).\
-**Next action:** M4 fixes in order F1 (accent-insensitive names), F3
-(general evidence windows), F4 (subject placement), F5/F6 (linking new
-descriptions to known entities). Real Session 37 trusted-vault ingestion is
-still pending the user's go-ahead.
+**Next action:** M4 is in progress. F1, F3 and F8 (partial) are done; see
+`docs/m3/SESSION_38_BLIND_BASELINE.md` section 6. Next: F4 (subject placement
+when the topic has no note), F6 (full-name canonicalization), F5/F7
+(promoting named witnesses and suspected links to REVIEW/open questions).
+Real Session 37 trusted-vault ingestion is still pending the user's go-ahead.
 
 **Additional notes:**
 
