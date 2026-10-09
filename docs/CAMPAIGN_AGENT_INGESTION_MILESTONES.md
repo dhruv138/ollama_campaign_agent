@@ -195,11 +195,18 @@ Either:
 -   Every material miss is documented and classified so it can drive a
     general improvement.
 
-**Status:** ☐ Not started ☐ In progress ☐ Complete
+**Status:** ☐ Not started ☐ In progress ☑ Complete (2026-10-08; second
+exit criterion: every miss classified)
 
-**Baseline score:** \_\_\_\_\_\_
+**Baseline score:** discovery ~83%, fact recall ~60%, placement ~30%,
+relationships ~6%, unsupported ~15%, critical canon errors written 0
+(dry run). Fails the targets.
 
-**Findings / notes:**
+**Findings / notes:** see `docs/m3/SESSION_38_BLIND_BASELINE.md`
+(DM-reviewed expected result, raw run, and failure classes F1--F9).
+The largest general gaps are accent-insensitive name matching (F1),
+Session-37-specific evidence windows (F3), fact placement on co-mentioned
+entities (F4), and linking new descriptions to known entities (F5, F6).
 
 ------------------------------------------------------------------------
 
@@ -383,7 +390,7 @@ Session 37 successfully passes disposable-vault ingestion and audit.
 
 Session 38 receives a blind baseline score using the formal rubric.
 
-**Status:** ☐
+**Status:** ☑ (2026-10-08; scored with the draft rubric in `docs/m3/`)
 
 ## Gate C --- Multi-Session Learning
 
@@ -427,8 +434,8 @@ real Session 37 ingestion.
 Use this section when pausing development so the next work session can
 resume quickly.
 
-**Current milestone:** M2 --- Formalize the Ingestion Accuracy Rubric
-(M1 complete)\
+**Current milestone:** M4 --- Generalize From Session 38 Failures
+(M1, M3 complete; M2 rubric drafted inline in `docs/m3/`)\
 **Current Campaign Agent version:** V4.16.1 (plan-driven, quality-gated
 creation; frontmatter-preserving writes; placeholder-free created notes)\
 **Current development orchestrator:** V4.15.1\
@@ -436,9 +443,10 @@ creation; frontmatter-preserving writes; placeholder-free created notes)\
 PASS\
 **Last completed action:** M1 Session 37 E2E acceptance passed on a
 disposable vault (run `20261008_214712_116253`).\
-**Next action:** Decide whether to perform the real Session 37
-ingestion into the trusted vault; draft the M2 scoring worksheet; add
-Session 38 notes to the vault for the M3 blind test.
+**Next action:** M4 fixes in order F1 (accent-insensitive names), F3
+(general evidence windows), F4 (subject placement), F5/F6 (linking new
+descriptions to known entities). Real Session 37 trusted-vault ingestion is
+still pending the user's go-ahead.
 
 **Additional notes:**
 

@@ -1,0 +1,308 @@
+Config file: /Users/dhruvmukul/Obsidian_scripts/config.e2e.yaml
+Vault root:  /Users/dhruvmukul/Icemoor_Obsidian_Vault_E2E
+Effective entity folders:
+  ✓ npc      -> People/
+  ✓ location -> Places/
+  ✓ faction  -> Factions/
+  ✓ quest    -> Quests/
+  ✓ item     -> Items/
+  ✓ session  -> Sessions/
+  ✗ campaign -> Campaign/
+  ✗ clues    -> Clues_&_Mysteries/
+  ✓ lore     -> Lore/
+Scanning vault: /Users/dhruvmukul/Icemoor_Obsidian_Vault_E2E
+Found 229 other Markdown notes.
+Calling Ollama model: qwen3:1.7b
+Running focused extraction passes:
+  → Entities
+  → Quests and Objectives
+  → Clues and Mysteries
+  → Lore and World Knowledge
+
+========================================================================
+CAMPAIGN AGENT V4.7.1 PLAN
+========================================================================
+Target: Sessions/Session_38.md
+
+MATCHED EXISTING NOTES
+  ✓ 'Deaníra' -> [[Deanira]] [npc, exact-type]
+  ✓ 'Daggins' -> [[Daddy Dildo Daggins]] [npc, exact-type]
+  ✓ 'the Two Tits' -> [[The Two Tits]] [location, exact-type]
+  ✓ 'Riffle' -> [[Riffle]] [npc, exact-type]
+  ✓ 'Sabrina' -> [[Sabrina]] [npc, exact-type]
+  ✓ 'Velvet Glove' -> [[Velvet Glove Brothel]] [location, exact-type]
+  ✓ "Heaven's Touch" -> [[Heaven's Touch]] [location, exact-type]
+  ✓ 'Skeletal Hand' -> [[Skeletal Hand]] [faction, exact-type]
+  ✓ 'Theo' -> [[Theo'din Corvis]] [npc, exact-type]
+  ✓ 'Talir' -> [[Talir Rengavi]] [npc, exact-type]
+  ✓ 'Bianca' -> [[Bianca Onyxcrest]] [npc, exact-type]
+
+PROPOSED NEW NOTES
+  ? 'Atheela' -> Atheela [npc, meaningful, eligible for creation]
+      Why: A key character from The union of Many, connected to Deaníra and the campaign's lore.
+  ? 'Jeffrey' -> Jeffrey [npc, incidental, eligible for creation]
+      Why: A young pimply kid mentioned in the session.
+  ? 'Zelda' -> Zelda [npc, incidental, eligible for creation]
+      Why: A former worker from the Velvet Glove mentioned in the session.
+  ? 'Karyn' -> Karyn [npc, incidental, eligible for creation]
+      Why: A staff member mentioned in the session.
+  ? 'The mausoleum' -> The mausoleum [location, incidental, eligible for creation]
+      Why: A place mentioned in the session.
+  ? 'Dimension Door' -> Dimension Door [location, incidental, eligible for creation]
+      Why: A location mentioned in the session.
+  ? 'The warehouse' -> The warehouse [location, incidental, eligible for creation]
+      Why: A location mentioned in the session.
+  ? 'The gown' -> The gown [item, incidental, eligible for creation]
+      Why: A specific item mentioned in the session.
+  ? 'The collar of fine jewels' -> The collar of fine jewels [item, incidental, eligible for creation]
+      Why: A specific item mentioned in the session.
+
+REVIEW-ONLY CANDIDATES
+  ? 'The union of Many' [faction, recurring] - new faction classification requires review
+      Why: A specific organization mentioned in the session, connected to Deaníra and Atheela.
+  ? 'The Gauntlet' [quest, incidental] - new quest candidate requires human review before creation
+      Why: A themed round mentioned in the session.
+
+BLOCKED / LOW-SPECIFICITY
+  ! 'The Academy' [location] - generic description/title
+  ! 'The Gala' [quest] - event mentioned by a TODO, not established as a standalone quest
+
+TYPE CONFLICTS
+  (none)
+
+Write policy:
+  - Existing matches are safe link candidates.
+  - Normal mode asks individually before creating each proposed/review note.
+  - --auto creates only eligible new notes; review/blocked/conflict candidates are skipped.
+  - YAML receives only matched or actually-created notes.
+  - No model-generated semantic relationships are written.
+  - V4.6.3 adds candidate significance, conservative quest naming, observer/subject precision, and boundary-aware planner excerpts.
+  - Existing files are backed up before modification.
+========================================================================
+
+========================================================================
+CAMPAIGN STATE EXTRACTED FROM THIS SESSION
+========================================================================
+
+QUESTS / OBJECTIVES
+  • Investigation of the Skeletal Hand Fellow [unresolved]
+    Riffle and Deaníra are investigating a young blonde man named Andrew and a worker at the Velvet Glove named Angela, following rumors about the Skeletal Hand fellow.
+  • Preparation for the Gala [active]
+    Deaníra is shopping for a gown, jewellery, and face paint for the Gala, and purchases a gold and blue feathered ballgown and a collar of fine jewels.
+
+CLUES / EVIDENCE
+  • Deaníra's interaction with the Half Elf woman [observed]
+    Deaníra shows Atheela a silver dildo and expresses admiration for the Half Elf's order, which emphasizes open love and fertility deities. Atheela confirms they are followers of multiple deities and are involved in the Two Tits.
+    SOURCE: 24 September 2026
+Deaníra walks down to the basement to see how many people are down there. She knocks on the door and opens it to see about a dozen people of all kinds. The Half Elf woman with the vagina staff asks if she can help Deanira. Deanira asks if they know someone with the name of Daggins. They do! They were devastated to hear about Brother Daggins's death. She explains that their order is called The uni...
+  • The Zone of Truth casting [observed]
+    Deaníra is asked if everyone present is over 18, and Jeffrey responds 'no.' The session notes that Jeffrey is a young pimply kid, and the group is instructed to return when he is 18.
+  • The Gauntlet details [observed]
+    Riffle observes that the Gauntlet has four teams and five themed rounds: Beasts, Celestials, Fiends, Elementals, and Fey.
+
+CAMPAIGN DEVELOPMENTS
+  • Deity Worship in the Two Tits [established]
+    The union of Many, an order of followers of multiple deities (Shialliah, Lethander, Melorah, and others of fertility and love), visits the Two Tits weekly to 'worship'.
+    Related: The union of Many, Shialliah, Lethander, Melorah
+    SOURCE: 24 September 2026
+Deaníra walks down to the basement to see how many people are down there. She knocks on the door and opens it to see about a dozen people of all kinds. The Half Elf woman with the vagina staff asks if she can help Deanira. Deanira asks if they know someone with the name of Daggins. They do! They were devastated to hear about Brother Daggins's death. She explains that their order is called The uni...
+  • Enchanted Individuals in the Two Tits [observed]
+    Individuals in the Two Tits are enchanted, with a settled aura or enchantment on those present. Theo attempts to cast Dispel Magic but is escorted out due to the no-magic casting area.
+    Related: Theo, Zelda
+    SOURCE: 24 September 2026
+Deaníra walks down to the basement to see how many people are down there. She knocks on the door and opens it to see about a dozen people of all kinds. The Half Elf woman with the vagina staff asks if she can help Deanira. Deanira asks if they know someone with the name of Daggins. They do! They were devastated to hear about Brother Daggins's death. She explains that their order is called The uni...
+  • Rumors of Death and Poisoning [observed]
+    There are rumors that the parents of Owen, the son of the warehouse owner, died, possibly from poisoning. Some students find it strange that Owen hasn't been close to them.
+    Related: Owen, Parents
+  • The Cloaked Figure in the Mausoleum [observed]
+    A cloaked hooded figure enters the mausoleum and vanishes. Riffle receives a sending message from Talir demanding the return of documents from his safe.
+    Related: Talir
+
+RUMORS / REPORTED CLAIMS
+  • Rumors about the Skeletal Hand fellow [reported]
+    The group is wondering if the young blonde man who gave his name Andrew and saw Angela at the Velvet Glove is the Skeletal Hand fellow.
+
+NOTE: Campaign-state extraction is report-first in V4.6.3; only individually approved SUBJECT proposals may be written.
+Model-written details are interpretations; OPEN QUESTIONS are source-grounded in V4.6.3 and all AI details must be reviewed
+against the source before any future canon UPDATE operation.
+Unapproved interpretations are NOT written; this preserves the
+source/interpretation boundary while controlled writes are enabled.
+========================================================================
+
+DETERMINISTIC ENTITY DISCOVERY
+  YAML metadata : 0
+  Wikilinks     : 0
+  Prose matches : 11
+  Unique notes  : 11
+  Ambiguous single-word prose aliases are suppressed
+
+CANONICAL SOURCE DIAGNOSTICS
+  characters : 4640
+  wikilinks  : 0
+  todo header: 0
+  Torm hits  : 0
+  blond hits : 1
+  Two Tits   : 0
+
+Deterministic source evidence windows: 2
+
+SOURCE EVIDENCE INDEX (deterministic; report-only)
+  [two_tits_basement] 24 September 2026
+Deaníra walks down to the basement to see how many people are down there. She knocks on the door and opens it to see about a dozen people of all kinds. The Half Elf woman with the vagina staff asks if she can help Deanira. Deanira asks if they know someone with the name of Daggi...
+  [blond_recruiter] The following day we go shopping for the Gala! Deanira is on the hunt for a gown, jewellery, and face paint. We go to a high end dress shop and Deanira gets a gold and blue feathered ballgown and a collar of fine jewels.
+After shopping, Riffle wants to go speak to Sabrina, the bartender at the Ve...
+
+========================================================================
+V4.7.1 SAFE CHANGE PLAN
+========================================================================
+
+UPDATE EXISTING
+  [U1] [[Deanira]] [npc]
+       Path: People/Deanira.md
+       • ADD SESSION HISTORY: [[Session_38]] [deterministic]
+       • ADD CLUE: Deaníra's interaction with the Half Elf woman [source-grounded]
+         Deaníra shows Atheela a silver dildo and expresses admiration for the Half Elf's order, which emphasizes open love and fertility deities.
+         SOURCE: 24 September 2026 Deaníra walks down to the basement to see how many people are down there. She knocks on the door and opens it to see about a dozen people of all kinds.
+       • ADD CLUE: The Zone of Truth casting [model-interpretation-needs-review]
+         Deaníra is asked if everyone present is over 18, and Jeffrey responds 'no.' The session notes that Jeffrey is a young pimply kid, and the group is instructed to return when he i...
+       RELATED CONTEXT (not an UPDATE):
+         ↳ Investigation of the Skeletal Hand Fellow [quests]
+         ↳ Preparation for the Gala [quests]
+         ↳ Deity Worship in the Two Tits [developments]
+         ↳ Enchanted Individuals in the Two Tits [developments]
+  [U2] [[Daddy Dildo Daggins]] [npc]
+       Path: People/Daddy Dildo Daggins.md
+       • ADD SESSION HISTORY: [[Session_38]] [deterministic]
+       No semantic campaign-state update confidently associated.
+       RELATED CONTEXT (not an UPDATE):
+         ↳ Deaníra's interaction with the Half Elf woman [clues]
+         ↳ Deity Worship in the Two Tits [developments]
+         ↳ Enchanted Individuals in the Two Tits [developments]
+  [U3] [[The Two Tits]] [location]
+       Path: Places/The Two Tits.md
+       • ADD SESSION HISTORY: [[Session_38]] [deterministic]
+       • ADD FACT: Deity Worship in the Two Tits [source-grounded]
+         The union of Many, an order of followers of multiple deities (Shialliah, Lethander, Melorah, and others of fertility and love), visits the Two Tits weekly to 'worship'.
+         SOURCE: 24 September 2026 Deaníra walks down to the basement to see how many people are down there. She knocks on the door and opens it to see about a dozen people of all kinds.
+       • ADD FACT: Enchanted Individuals in the Two Tits [source-grounded]
+         Individuals in the Two Tits are enchanted, with a settled aura or enchantment on those present. Theo attempts to cast Dispel Magic but is escorted out due to the no-magic castin...
+         SOURCE: 24 September 2026 Deaníra walks down to the basement to see how many people are down there. She knocks on the door and opens it to see about a dozen people of all kinds.
+       RELATED CONTEXT (not an UPDATE):
+         ↳ Deaníra's interaction with the Half Elf woman [clues]
+  [U4] [[Riffle]] [npc]
+       Path: People/Riffle.md
+       • ADD SESSION HISTORY: [[Session_38]] [deterministic]
+       • ADD CLUE: The Gauntlet details [model-interpretation-needs-review]
+         Riffle observes that the Gauntlet has four teams and five themed rounds: Beasts, Celestials, Fiends, Elementals, and Fey.
+       RELATED CONTEXT (not an UPDATE):
+         ↳ Investigation of the Skeletal Hand Fellow [quests]
+         ↳ The Cloaked Figure in the Mausoleum [developments]
+  [U5] [[Sabrina]] [npc]
+       Path: People/Sabrina.md
+       • ADD SESSION HISTORY: [[Session_38]] [deterministic]
+       No semantic campaign-state update confidently associated.
+  [U6] [[Velvet Glove Brothel]] [location]
+       Path: Places/Velvet Glove Brothel.md
+       • ADD SESSION HISTORY: [[Session_38]] [deterministic]
+       No semantic campaign-state update confidently associated.
+       RELATED CONTEXT (not an UPDATE):
+         ↳ Investigation of the Skeletal Hand Fellow [quests]
+         ↳ Rumors about the Skeletal Hand fellow [rumors]
+  [U7] [[Heaven's Touch]] [location]
+       Path: Places/Heaven's Touch.md
+       • ADD SESSION HISTORY: [[Session_38]] [deterministic]
+       No semantic campaign-state update confidently associated.
+  [U8] [[Skeletal Hand]] [faction]
+       Path: Factions/Skeletal Hand.md
+       • ADD SESSION HISTORY: [[Session_38]] [deterministic]
+       • ADD OBJECTIVE: Investigation of the Skeletal Hand Fellow [model-interpretation-needs-review]
+         Riffle and Deaníra are investigating a young blonde man named Andrew and a worker at the Velvet Glove named Angela, following rumors about the Skeletal Hand fellow.
+       • ADD REPORTED CLAIM: Rumors about the Skeletal Hand fellow [model-interpretation-needs-review]
+         The group is wondering if the young blonde man who gave his name Andrew and saw Angela at the Velvet Glove is the Skeletal Hand fellow.
+  [U9] [[Theo'din Corvis]] [npc]
+       Path: People/Theo'din Corvis.md
+       • ADD SESSION HISTORY: [[Session_38]] [deterministic]
+       No semantic campaign-state update confidently associated.
+  [U10] [[Talir Rengavi]] [npc]
+       Path: People/Talir Rengavi.md
+       • ADD SESSION HISTORY: [[Session_38]] [deterministic]
+       No semantic campaign-state update confidently associated.
+  [U11] [[Bianca Onyxcrest]] [npc]
+       Path: People/Bianca Onyxcrest.md
+       • ADD SESSION HISTORY: [[Session_38]] [deterministic]
+       No semantic campaign-state update confidently associated.
+
+CREATE NEW
+  [C1] Atheela [npc]
+       Proposed path: People/Atheela.md
+       specific named candidate
+  [C2] Jeffrey [npc]
+       Proposed path: People/Jeffrey.md
+       specific named candidate
+  [C3] Zelda [npc]
+       Proposed path: People/Zelda.md
+       specific named candidate
+  [C4] Karyn [npc]
+       Proposed path: People/Karyn.md
+       specific named candidate
+  [C5] The mausoleum [location]
+       Proposed path: Places/The mausoleum.md
+       specific named candidate
+  [C6] Dimension Door [location]
+       Proposed path: Places/Dimension Door.md
+       specific named candidate
+  [C7] The warehouse [location]
+       Proposed path: Places/The warehouse.md
+       specific named candidate
+  [C8] The gown [item]
+       Proposed path: Items/The gown.md
+       specific named candidate
+  [C9] The collar of fine jewels [item]
+       Proposed path: Items/The collar of fine jewels.md
+       specific named candidate
+
+REVIEW / POSSIBLE DUPLICATE
+  [R1] The union of Many [faction]
+       Proposed path: Factions/The union of Many.md
+       new faction classification requires review
+  [R2] The Gauntlet [quest]
+       Proposed path: Quests/The Gauntlet.md
+       new quest candidate requires human review before creation
+
+IGNORE
+  [I1] The Academy [location] — generic description/title
+  [I2] The Gala [quest] — event mentioned by a TODO, not established as a standalone quest
+
+SESSION METADATA PROPOSAL
+  Target: Sessions/Session_38.md
+  npcs:
+    - [[Deanira]]
+    - [[Daddy Dildo Daggins]]
+    - [[Riffle]]
+    - [[Sabrina]]
+    - [[Theo'din Corvis]]
+    - [[Talir Rengavi]]
+    - [[Bianca Onyxcrest]]
+  locations:
+    - [[The Two Tits]]
+    - [[Velvet Glove Brothel]]
+    - [[Heaven's Touch]]
+  factions:
+    - [[Skeletal Hand]]
+
+WRITE STATUS
+  Planner proposals require approval in V4.6.3; real writes are transaction-backed.
+  ADD SESSION HISTORY defaults YES in normal mode; semantic updates default NO.
+  Semantic UPDATEs require SUBJECT classification; observer-only mentions are RELATED.
+  --dry-run changes no files.
+  Session-body wikilinking is a separate approval and defaults NO; --auto does not approve it.
+  If no mutations are approved, no transaction/manifest is created.
+  Only SUBJECT-classified rows are eligible for semantic UPDATE; RELATED rows remain context only.
+  V4.6.3 consolidates equivalent candidates, requires durable quest evidence, and blocks category-like item collections.
+========================================================================
+
+Dry run complete. No files changed.
+
+------------------------------------------------------------------------
+Total runtime: 3m 28.72s
+------------------------------------------------------------------------

@@ -43,6 +43,7 @@ import difflib
 import re
 import shutil
 import sys
+import unicodedata
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -151,6 +152,12 @@ def normalize_name(value: str) -> str:
     value = re.sub(r"\[\[|\]\]", "", str(value))
     value = value.split("|", 1)[0]
     value = value.strip().lower().replace("’", "'")
+    # Fold accents (Deaníra -> deanira) so diacritic spelling variants of a
+    # name resolve to the same note instead of splitting into fragments.
+    value = "".join(
+        c for c in unicodedata.normalize("NFKD", value)
+        if not unicodedata.combining(c)
+    )
     value = re.sub(r"[^a-z0-9']+", " ", value)
     value = re.sub(r"\s+", " ", value).strip()
     return value
@@ -614,6 +621,22 @@ def extract_yaml_entities(target: VaultNote, alias_index: dict[str, list[VaultNo
     return rows
 
 
+def fold_accents_same_length(text: str) -> str:
+    """
+    Strip diacritics character-by-character while keeping string length, so
+    regex spans found in the folded text index the original text exactly
+    (Deaníra -> Deanira, same offsets).
+    """
+    out = []
+    for ch in text:
+        base = "".join(
+            c for c in unicodedata.normalize("NFKD", ch)
+            if not unicodedata.combining(c)
+        )
+        out.append(base if len(base) == 1 else ch)
+    return "".join(out)
+
+
 def extract_prose_existing_entities(
     body: str,
     existing_notes: list[VaultNote],
@@ -626,6 +649,7 @@ def extract_prose_existing_entities(
     inside the longer phrase "Raven Queen".
     """
     candidates: list[dict[str, Any]] = []
+    folded_body = fold_accents_same_length(body)
 
     ambiguous_single_words = {
         "queen", "king", "prince", "princess", "lord", "lady",
@@ -662,14 +686,14 @@ def extract_prose_existing_entities(
                 and normalized_candidate in ambiguous_single_words
             ):
                 continue
-            parts = re.split(r"\s+", candidate.strip())
+            parts = re.split(r"\s+", fold_accents_same_length(candidate.strip()))
             pat = r"(?<![\w])" + r"\s+".join(re.escape(p) for p in parts) + r"(?![\w])"
-            for match in re.finditer(pat, body, re.I):
+            for match in re.finditer(pat, folded_body, re.I):
                 candidates.append({
                     "start": match.start(),
                     "end": match.end(),
                     "length": match.end() - match.start(),
-                    "mention": match.group(0),
+                    "mention": body[match.start():match.end()],
                     "note": note,
                     "type": etype,
                 })
@@ -1314,19 +1338,24 @@ def replace_mentions_with_links(
             continue
 
         pattern = re.compile(
-            rf"(?<![\w\]]){re.escape(mention)}(?![\w\[])",
+            rf"(?<![\w\]]){re.escape(fold_accents_same_length(mention))}(?![\w\[])",
             flags=re.I,
         )
 
         pieces = []
         last = 0
         did_change = False
-        for match in pattern.finditer(result):
+        # Match on accent-folded text (same offsets) so "Deaníra" links to
+        # [[Deanira|Deaníra]] while the visible spelling is preserved.
+        for match in pattern.finditer(fold_accents_same_length(result)):
             if in_protected_range(result, match.start(), match.end()):
                 continue
             pieces.append(result[last:match.start()])
-            visible = match.group(0)
-            if normalize_name(visible) == normalize_name(canonical):
+            visible = result[match.start():match.end()]
+            if (
+                normalize_name(visible) == normalize_name(canonical)
+                and fold_accents_same_length(visible) == visible
+            ):
                 link = f"[[{canonical}]]"
             else:
                 link = f"[[{canonical}|{visible}]]"

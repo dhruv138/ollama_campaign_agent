@@ -565,6 +565,35 @@ def run() -> int:
             f"by_index={none_approved!r}, planner_only={none_planner!r}",
         )
 
+    # V4.17 (M4/F1): diacritic spelling variants resolve to the same entity.
+    suite.check(
+        agent.normalize_name("Deaníra") == agent.normalize_name("Deanira") == "deanira",
+        "Accented name variants normalize identically",
+        repr(agent.normalize_name("Deaníra")),
+    )
+    accent_note = agent.VaultNote(
+        path=Path("People/Synthetic Deanira.md"), rel_path="People/Synthetic Deanira.md",
+        title="Synthetic Deanira", note_type="npc", aliases=[],
+        frontmatter={"aliases": ["Deanira"]}, body="",
+    )
+    accent_rows = agent.extract_prose_existing_entities(
+        "Later, Deaníra walks down to the basement.", [accent_note],
+    )
+    suite.check(
+        [r.get("name") for r in accent_rows] == ["Synthetic Deanira"]
+        and accent_rows[0].get("mention") == "Deaníra",
+        "Prose discovery matches an accented spelling and keeps the source text",
+        repr(accent_rows),
+    )
+    linked, _ = agent.replace_mentions_with_links(
+        "Deaníra meets Deanira.", [("Deanira", "Deanira")],
+    )
+    suite.check(
+        linked == "[[Deanira|Deaníra]] meets [[Deanira]].",
+        "Wikilinking preserves the accented spelling as the display text",
+        repr(linked),
+    )
+
     # V4.16.1: body-only note edits keep frontmatter byte-for-byte.
     original_note = (
         '---\ntitle: "Synthetic Place"\ntags:\n  - place\n  - dnd\n---\n'
