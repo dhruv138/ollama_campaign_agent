@@ -182,6 +182,10 @@ def make_matcher(agent):
             return 0.0
         if ka == kb:
             return 1.0
+        # Same words in another order ("Black Feathers Order" / "Order of Black Feathers").
+        bag = lambda k: {w for w in k.split() if w not in {"of", "the", "a", "an", "and"}}
+        if bag(ka) and bag(ka) == bag(kb):
+            return 1.0
         # Partial: one name is a contiguous part of the other
         # ("Peter" / "Peter Owens", "Black Feathers" / "Order of Black Feathers").
         ta, tb = ka.split(), kb.split()

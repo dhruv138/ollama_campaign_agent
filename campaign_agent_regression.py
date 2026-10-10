@@ -805,6 +805,65 @@ def run() -> int:
         repr(sorted(head_pairs)),
     )
 
+    # V4.22: junk classes go to IGNORE, real entities stay, lore needs source
+    # support, organizations typed as lore become factions, recurring objects
+    # are restored, and duplicate quests merge into the existing quest note.
+    junk_body = (
+        "We meet Hollis Vane at the Copper Lantern. A grey cloaked stranger watches us. "
+        "Mirela casts Misty Step and we follow. The sailors talk:\n"
+        "- Near the Sunken Spire they saw lights at night.\n"
+        "Later a sect who worships Vorn, the Stern God of Toil, smashes a cart. "
+        "Marta Vell shows us the brass compass again."
+    )
+    ledger = agent.VaultNote(path=Path("Sessions/S1.md"), rel_path="Sessions/S1.md", title="S1",
+                             note_type="session", aliases=[], frontmatter={},
+                             body="Marta Vell found the brass compass in a ditch.")
+    old_quest = _syn_note("Sunken Spire Mystery", "quest")
+    junk_plan = {
+        "creates": [
+            {"entity": "Hollis Vane", "type": "npc", "significance": "meaningful"},
+            {"entity": "Grey Cloaked Stranger", "type": "npc", "significance": "meaningful"},
+            {"entity": "Misty Step", "type": "location", "significance": "meaningful"},
+            {"entity": "Sunken Spire", "type": "location", "significance": "meaningful"},
+            {"entity": "Head Priest of the Temple", "type": "npc", "significance": "meaningful"},
+        ],
+        "reviews": [
+            {"entity": "Vorn", "type": "lore"}, {"entity": "Toil", "type": "lore"},
+            {"entity": "Ashen Circle", "type": "lore"},
+            {"entity": "Investigate the sunken spire lights", "type": "quest"},
+        ],
+        "ignores": [{"entity": "The brass compass", "type": "item",
+                     "reason": "descriptive common-noun phrase rather than a proper name"}],
+        "updates": [], "session_metadata": {"add": {"quests": []}},
+    }
+    agent.v422_junk_gate(junk_plan, junk_body, [inn, marta, friend, ledger, old_quest], {"faction": "Factions"})
+    agent.v422_merge_duplicate_quests(junk_plan, [old_quest], Path("."), "[[S2]]")
+    kept = {r["entity"] for r in junk_plan["creates"] + junk_plan["reviews"]}
+    dropped = {r["entity"]: r["reason"] for r in junk_plan["ignores"]}
+    suite.check(
+        {"Hollis Vane", "Vorn", "The brass compass"} <= kept
+        and {"Grey Cloaked Stranger", "Misty Step", "Sunken Spire", "Head Priest of the Temple", "Toil"} <= set(dropped),
+        "Junk gate drops descriptions, spells, hearsay places, bare titles and unsupported lore",
+        f"kept={sorted(kept)!r} dropped={sorted(dropped)!r}",
+    )
+    suite.check(
+        any(r["entity"] == "Ashen Circle" and r["type"] == "faction" for r in junk_plan["reviews"]),
+        "Organization names typed as lore are reclassified as factions",
+        repr(junk_plan["reviews"]),
+    )
+    suite.check(
+        [u["entity"] for u in junk_plan["updates"]] == ["Sunken Spire Mystery"]
+        and "Investigate the sunken spire lights" not in kept,
+        "A duplicate quest merges into the existing quest note",
+        repr(junk_plan["updates"]),
+    )
+    suite.check(
+        agent.creation_policy({"name": "Torm", "mention": "Torm", "type": "lore"})[0] == "review"
+        and agent.creation_policy({"name": "bar", "mention": "bar", "type": "location"})[0] == "blocked",
+        "Short capitalized names are reviewable; short lowercase filler is blocked",
+        "",
+    )
+
     # V4.16.1: body-only note edits keep frontmatter byte-for-byte.
     original_note = (
         '---\ntitle: "Synthetic Place"\ntags:\n  - place\n  - dnd\n---\n'

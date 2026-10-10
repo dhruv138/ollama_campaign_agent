@@ -449,22 +449,24 @@ resume quickly.
 
 **Current milestone:** M4 --- Generalize From Session 38 Failures
 (M1, M3 complete; M2 rubric drafted inline in `docs/m3/`)\
-**Current Campaign Agent version:** V4.21 (V4.20 plus deterministic
-named-entity candidates from naming patterns and unique head-word resolution,
-e.g. "the Academy" -> Mistra's Academy)\
+**Current Campaign Agent version:** V4.22 (V4.21 plus a session-agnostic
+junk gate: spells, descriptions, hearsay places, bare titles; source-supported
+Lore notes; duplicate quests merged into existing quest notes)\
 **Current development orchestrator:** V4.15.1\
-**Known frozen baselines:** 72/0/1 deterministic; 80/0/0 full; pipeline
+**Known frozen baselines:** 76/0/1 deterministic; 84/0/0 full; pipeline
 PASS. Golden scores per version: `docs/golden/`\
 **Last completed action:** M1 Session 37 E2E acceptance passed on a
 disposable vault (run `20261008_214712_116253`).\
-**Next action:** Golden (V4.21, cached model output): entity discovery
-81% / 75%, session links 71% / 71%, relationship recall 30.6% / 16.8%
-(Sessions 38 / 37). Fact recall (33% / 48%) is now the largest gap and is
-mostly model capacity. Re-measure on a larger model once available. Set
-`CAMPAIGN_AGENT_LLM_CACHE=_test_runs/llm_cache` to replay cached model
-output when comparing code changes. The DM ruled the golden vault
-authoritative; real Session 37 ingestion waits until the agent is ~95% of
-golden by `campaign_agent_score.py`.
+**Next action:** Golden (V4.22, cached model output), Sessions 38 / 37:
+entity discovery 90.5% / 87.5% (target met), session links 74% / 86%,
+unsupported new entities 33% / 12.5%, relationship recall 35% / 17%
+(precision 37% / 72%), fact recall 33% / 48%. Fact recall and relationship
+recall are the remaining gaps; fact recall is mostly model capacity, so
+re-measure on a larger model once available. Set
+`CAMPAIGN_AGENT_LLM_CACHE=_test_runs/llm_cache` to replay cached model output
+when comparing code changes. The DM ruled the golden vault authoritative;
+real Session 37 ingestion waits until the agent is ~95% of golden by
+`campaign_agent_score.py`.
 
 **Additional notes:**
 

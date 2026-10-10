@@ -59,7 +59,7 @@ except ImportError:
     sys.exit(1)
 
 
-ENTITY_TYPES = ("npc", "location", "faction", "quest", "item")
+ENTITY_TYPES = ("npc", "location", "faction", "quest", "item", "lore")
 TYPE_TO_METADATA_KEY = {
     "npc": "npcs",
     "location": "locations",
@@ -228,6 +228,10 @@ def creation_policy(entity: dict[str, Any]) -> tuple[str, str]:
         return "blocked", "likely demographic/descriptor misclassified as faction"
 
     if len(key.split()) == 1 and len(key) < 5:
+        # Short capitalized names (Torm, Val) are reviewable; lowercase filler
+        # is blocked. v422_junk_gate later checks capitalization in the source.
+        if mention[:1].isupper():
+            return "review", "short name; requires review"
         return "blocked", "too short/generic"
 
     # Unnamed but meaningful/recurring NPCs are worth tracking as review candidates.
@@ -890,10 +894,14 @@ def _evidence_tokens(text: str) -> set[str]:
 
 
 def source_sentences(body: str) -> list[str]:
-    """Split source prose into sentences, independent of how lines are wrapped."""
-    text = re.sub(r"\s+", " ", body)
-    parts = re.split(r"(?<=[.!?])\s+(?=[\"'A-Z\[])", text)
-    return [p.strip() for p in parts if len(p.strip()) >= 20]
+    """Split source prose into sentences, independent of how lines are wrapped.
+    Bullet-list items are separate sentences even without end punctuation."""
+    out: list[str] = []
+    for chunk in re.split(r"\n\s*[-*•]\s*", "\n" + body):
+        text = re.sub(r"\s+", " ", chunk)
+        parts = re.split(r"(?<=[.!?])\s+(?=[\"'A-Z\[])", text)
+        out.extend(p.strip() for p in parts if len(p.strip()) >= 20)
+    return out
 
 
 def generic_sentence_evidence(
@@ -1152,6 +1160,12 @@ _PERSON_PATTERNS = [
         r"brother|sister|captain|sailor|smith|blacksmith|scholar|librarian|servant)\b"
     ),
 ]
+_LORE_PATTERNS = [
+    # Deities named as objects of worship or with a divine epithet.
+    re.compile(rf"\bworship(?:s|ped|ping)?\s+({_NAME})"),
+    re.compile(rf"\b({_NAME}),\s+the\s+(?:[A-Z][\w\-]*\s+){{0,3}}(?:God|Goddess|Deity)\b"),
+    re.compile(rf"\b(?:[Gg]od|[Gg]oddess|[Dd]eity)\s+({_NAME})"),
+]
 _PLACE_NOUNS = (
     r"Temple|Shrine|Clinic|Hospital|Inn|Tavern|Library|Academy|Tower|Guild|Market|"
     r"Mausoleum|Crypt|Keep|Castle|Hall|Halls|District|Square|Harbou?r|Docks|Bridge|Gate|"
@@ -1202,6 +1216,9 @@ def named_entities_from_source(body: str) -> list[dict[str, Any]]:
     for pattern in _PLACE_PATTERNS:
         for m in pattern.finditer(text):
             add(m.group(1), "location", "capitalized place name in the source")
+    for pattern in _LORE_PATTERNS:
+        for m in pattern.finditer(text):
+            add(m.group(1), "lore", "deity named in the source")
     return rows
 
 
@@ -1220,12 +1237,6 @@ def entities_from_raw_evidence(body: str) -> list[dict[str, Any]]:
             "mention": "Black-Haired Woman", "name": "Black-Haired Woman",
             "type": "npc", "significance": "meaningful",
             "reason": "raw session text describes a distinctive unidentified black-haired woman",
-        })
-    if re.search(r"\bTorm\b", body):
-        rows.append({
-            "mention": "Torm", "name": "Torm", "type": "lore",
-            "significance": "meaningful",
-            "reason": "deity explicitly named in raw session text",
         })
     return rows
 
@@ -1610,9 +1621,9 @@ def update_target_frontmatter(
             grouped[etype].append(wikilink(canonical))
 
     for etype, links in grouped.items():
-        if not links:
-            continue
-        key = TYPE_TO_METADATA_KEY[etype]
+        key = TYPE_TO_METADATA_KEY.get(etype)
+        if not links or not key:
+            continue  # lore has no session-metadata list
         existing = as_list(fm.get(key))
         fm[key] = unique_links(existing + links)
 
@@ -2120,7 +2131,8 @@ def create_entity_note(
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"{safe_filename(title)}.md"
 
-    template_path = vault_root / template_folder / template_files[etype]
+    template_name = template_files.get(etype)
+    template_path = vault_root / template_folder / template_name if template_name else None
     text = render_template(
         template_path if template_path.exists() else None,
         title,
@@ -2797,9 +2809,12 @@ def build_change_plan(
     _v463_promote_quest_reviews(plan, campaign_state, existing_notes, vault_root, type_folders)
     _v463_consolidate_candidates(plan)
     v416_gate_plan_candidates(plan)
-    plan["relationships"] = v419_session_relationships(
-        plan, read_canonical_session_body(target), existing_notes,
+    source_body = read_canonical_session_body(target)
+    v422_junk_gate(plan, source_body, existing_notes, type_folders)
+    v422_merge_duplicate_quests(
+        plan, existing_notes, vault_root, f"[[{Path(target.rel_path).stem}]]",
     )
+    plan["relationships"] = v419_session_relationships(plan, source_body, existing_notes)
     return plan
 
 
@@ -2827,6 +2842,226 @@ def v416_gate_plan_candidates(plan: dict[str, Any]) -> None:
                 blocked = dict(row)
                 blocked["reason"] = reason
                 ignores.append(blocked)
+        plan[bucket] = kept
+
+
+# Common D&D 5e SRD spell names: game mechanics, never campaign entities.
+SRD_SPELLS = {
+    "acid splash", "aid", "alarm", "animal friendship", "animate dead", "antimagic field",
+    "arcane eye", "arcane lock", "astral projection", "augury", "bane", "banishment",
+    "barkskin", "bless", "blight", "blindness deafness", "blink", "blur", "burning hands",
+    "call lightning", "calm emotions", "chain lightning", "charm person", "chill touch",
+    "clairvoyance", "cloudkill", "color spray", "command", "commune", "comprehend languages",
+    "cone of cold", "confusion", "contact other plane", "counterspell", "create food and water",
+    "cure wounds", "dancing lights", "darkness", "darkvision", "daylight", "detect magic",
+    "detect thoughts", "dimension door", "disguise self", "disintegrate", "dispel magic",
+    "divination", "dominate person", "dream", "earthquake", "eldritch blast", "enlarge reduce",
+    "etherealness", "expeditious retreat", "faerie fire", "feather fall", "find familiar",
+    "find steed", "fire bolt", "fireball", "fly", "fog cloud", "freedom of movement", "gate",
+    "geas", "gentle repose", "guidance", "guiding bolt", "gust of wind", "haste", "heal",
+    "healing word", "heroism", "hex", "hold monster", "hold person", "identify", "invisibility",
+    "knock", "legend lore", "lesser restoration", "levitate", "light", "lightning bolt",
+    "locate object", "mage armor", "mage hand", "magic missile", "mending", "message",
+    "minor illusion", "mirror image", "misty step", "modify memory", "nondetection",
+    "pass without trace", "plane shift", "polymorph", "prestidigitation", "protection from evil and good",
+    "raise dead", "ray of frost", "remove curse", "resurrection", "revivify", "sacred flame",
+    "scrying", "see invisibility", "sending", "shield", "shield of faith", "silence",
+    "silent image", "sleep", "speak with animals", "speak with dead", "spider climb",
+    "spiritual weapon", "stoneskin", "suggestion", "teleport", "teleportation circle",
+    "thaumaturgy", "thunderwave", "tongues", "true seeing", "vicious mockery", "wall of fire",
+    "water breathing", "web", "wish", "word of recall", "zone of truth", "cat nap",
+}
+_TITLE_WORDS = {
+    "head", "chief", "high", "grand", "lord", "lady", "archivist", "librarian", "priest",
+    "priestess", "cleric", "captain", "guard", "master", "keeper", "headmaster", "headmistress",
+    "healer", "proprietor", "bartender", "innkeeper", "the", "of", "a", "an", "and", "library",
+    "temple", "academy", "city", "town", "school", "order", "guild", "church",
+}
+
+
+def _name_head(name: str) -> str:
+    words = [w for w in normalize_name(name).split() if w not in {"the", "a", "an"}]
+    if not words:
+        return ""
+    return words[words.index("of") - 1] if "of" in words[1:] else words[-1]
+
+
+def _capitalized_mid_sentence(word: str, sentences: list[str]) -> bool | None:
+    """True if `word` appears capitalized after the first word of some sentence,
+    False if it appears but never so, None if it does not appear at all."""
+    seen = False
+    pat = re.compile(r"(?<![\w])" + re.escape(word) + r"s?(?![\w])", re.I)
+    for sentence in sentences:
+        folded = fold_accents_same_length(sentence)
+        for m in pat.finditer(folded):
+            seen = True
+            if m.start() > 0 and folded[m.start()].isupper():
+                return True
+    return False if seen else None
+
+
+_ORG_NOUNS = r"\b(?:order|guild|cult|church|society|brotherhood|sisterhood|circle|union|league|company|syndicate|council|coven|clan)\b"
+
+
+def v422_junk_gate(
+    plan: dict[str, Any],
+    body: str,
+    existing_notes: list[VaultNote],
+    type_folders: dict[str, str] | None = None,
+) -> None:
+    """
+    Move session-agnostic classes of non-entities from CREATE/REVIEW to IGNORE:
+      - game mechanics: 5e SRD spell names, or anything the source says is cast
+      - descriptions: the name's head word is never capitalized mid-sentence in
+        the source ("black haired woman"); items and recurring NPCs are exempt
+      - hearsay places: a location named in a single sentence that involves no
+        party member or other known person and no "we/us/our"
+      - bare titles: NPC names made only of role/title/institution words
+    """
+    type_folders = type_folders or {}
+    sentences = source_sentences(body)
+    folded_body = fold_accents_same_length(re.sub(r"\s+", " ", body))
+    people = [n for n in existing_notes if str(n.note_type or "").lower() == "npc"]
+    lore_in_source = {
+        normalize_name(r["name"]) for r in named_entities_from_source(body) if r["type"] == "lore"
+    }
+    ignores = plan.setdefault("ignores", [])
+
+    # Recurring objects: a common-noun item ("the silver dildo") that earlier
+    # vault notes already mention is a tracked object, not a passing prop.
+    vault_text = " ".join(normalize_name(n.body) for n in existing_notes)
+    restored = []
+    for row in list(ignores):
+        name = str(row.get("entity") or "")
+        bare = re.sub(r"^(?:the|a|an) ", "", normalize_name(name))
+        if (
+            str(row.get("type") or "").lower() == "item"
+            and str(row.get("reason") or "").startswith("descriptive common-noun phrase")
+            and len(bare.split()) >= 2
+            and re.search(r"(?<![\w])" + re.escape(bare) + r"(?![\w])", vault_text)
+        ):
+            ignores.remove(row)
+            restored.append(dict(row, reason="recurring object already mentioned in earlier notes; requires review"))
+    plan.setdefault("reviews", []).extend(restored)
+
+    def reason_for(row: dict[str, Any]) -> str | None:
+        name = str(row.get("entity") or row.get("mention") or "")
+        etype = str(row.get("type") or "").lower()
+        if etype == "lore" and re.search(_ORG_NOUNS, name, re.I):
+            # "Black Feathers Order" is an organization, not lore.
+            row["type"] = etype = "faction"
+            row["reason"] = "organization name; new faction classification requires review"
+            if type_folders.get("faction"):
+                row["proposed_path"] = str(Path(type_folders["faction"]) / f"{safe_filename(name)}.md")
+        key = normalize_name(name)
+        bare = re.sub(r"^(?:the|a|an) ", "", key)
+        if etype == "quest":
+            return None
+        if etype == "lore" and key not in lore_in_source:
+            return "lore not established as a named deity in the source"
+        if bare in SRD_SPELLS or re.search(
+            r"\bcast(?:s|ing)?\s+(?:the\s+)?" + re.escape(fold_accents_same_length(re.sub(r"^(?:the|a|an)\s+", "", name, flags=re.I))) + r"\b",
+            folded_body, re.I,
+        ):
+            return "game mechanic (spell), not a campaign entity"
+        if etype == "npc" and key and all(w in _TITLE_WORDS for w in key.split()):
+            return "title without a personal name"
+        exempt = etype == "item" or (etype == "npc" and str(row.get("significance") or "") == "recurring")
+        content = [w for w in key.split() if w not in {"the", "a", "an", "of", "and"} and len(w) >= 3]
+        if not exempt and content:
+            # Judge the phrase where it occurs; fall back to its words when the
+            # spelling differs (model "Goliath" vs source "Gollath").
+            phrase = re.compile(
+                r"(?<![\w])" + r"[\s\-]+".join(re.escape(w) for w in key.split()) + r"(?![\w])", re.I)
+            spans = [
+                (s, m) for s in sentences
+                for m in phrase.finditer(fold_accents_same_length(s))
+                if m.start() > 0  # sentence-initial capitals prove nothing
+            ]
+            if spans:
+                proper = any(
+                    any(tok[:1].isupper() for tok in re.split(r"[\s\-]+", s[m.start():m.end()])
+                        if normalize_name(tok) in content)
+                    for s, m in spans
+                )
+                if not proper:
+                    return "description in the source, not a proper name"
+            elif not any(phrase.search(fold_accents_same_length(s)) for s in sentences):
+                checks = [_capitalized_mid_sentence(w, sentences) for w in content]
+                if any(c is not None for c in checks) and not any(checks):
+                    return "description in the source, not a proper name"
+        if etype == "location" and bare:
+            pat = re.compile(r"(?<![\w])" + re.escape(bare).replace(r"\ ", r"\s+") + r"(?![\w])", re.I)
+            hits = [s for s in sentences if pat.search(normalize_name(s))]
+            if len(hits) == 1:
+                s = hits[0]
+                involved = re.search(r"\b(?:we|us|our)\b", s, re.I) or extract_prose_existing_entities(s, people)
+                if not involved:
+                    return "place only mentioned in a reported story, not visited or involved"
+        return None
+
+    for bucket in ("creates", "reviews"):
+        kept = []
+        for row in plan.get(bucket, []) or []:
+            why = reason_for(row)
+            if why:
+                ignores.append(dict(row, reason=why))
+            else:
+                kept.append(row)
+        plan[bucket] = kept
+
+
+def _stems(text: str) -> set[str]:
+    stop = {"investigate", "investigation", "find", "the", "and", "into", "about", "missing"}
+    return {w[:5] for w in normalize_name(text).split() if len(w) >= 4 and w not in stop}
+
+
+def v422_merge_duplicate_quests(
+    plan: dict[str, Any],
+    existing_notes: list[VaultNote],
+    vault_root: Path,
+    session_link: str,
+) -> None:
+    """
+    A proposed quest whose key words overlap an existing quest note (>= 2 shared
+    word stems, e.g. "Investigate the mysterious unchartable island" vs
+    "Floating Island Mystery") is the same storyline: drop the CREATE/REVIEW row
+    and plan a Session History update on the existing quest instead.
+    """
+    quests = [n for n in existing_notes if str(n.note_type or "").lower() == "quest"]
+    if not quests:
+        return
+    updated = {normalize_name(str(u.get("entity") or "")) for u in plan.get("updates") or []}
+    for bucket in ("creates", "reviews"):
+        kept = []
+        for row in plan.get(bucket, []) or []:
+            if str(row.get("type") or "").lower() != "quest":
+                kept.append(row)
+                continue
+            cand = _stems(str(row.get("entity") or ""))
+            scored = sorted(
+                ((len(cand & (_stems(q.title) | set().union(*[_stems(a) for a in q.aliases] or [set()]))), q) for q in quests),
+                key=lambda x: -x[0],
+            )
+            if not scored or scored[0][0] < 2 or (len(scored) > 1 and scored[1][0] == scored[0][0]):
+                kept.append(row)
+                continue
+            note = scored[0][1]
+            if normalize_name(note.title) not in updated:
+                updated.add(normalize_name(note.title))
+                plan.setdefault("updates", []).append({
+                    "entity": note.title,
+                    "type": "quest",
+                    "path": _planner_relpath(note, vault_root),
+                    "match_method": "existing-quest-overlap",
+                    "session_history": {
+                        "action": "ADD SESSION HISTORY", "session": session_link,
+                        "deterministic": True, "write_enabled": False,
+                    },
+                    "proposals": [], "related": [], "relationships": [], "write_enabled": False,
+                    "merged_from": row.get("entity"),
+                })
+                plan["session_metadata"]["add"].setdefault("quests", []).append(note.title)
         plan[bucket] = kept
 
 
@@ -4247,7 +4482,7 @@ def _main_impl() -> int:
 
     def _create_approved(entity: dict[str, Any]) -> VaultNote | None:
         etype = str(entity.get("type") or "").lower()
-        if not create_missing or etype not in type_folders or etype not in template_files:
+        if not create_missing or etype not in type_folders:
             return None
         title = str(entity.get("name") or entity.get("mention") or "").strip()
         existing_path = vault_root / type_folders[etype] / f"{safe_filename(title)}.md"
